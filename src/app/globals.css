@@ -324,3 +324,110 @@ mark {
     margin-right: 0;
   }
 }
+
+/* Floating selection toolbar (mockup) */
+.ai-selection-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  max-width: 100%;
+  padding: 0.4rem 0.45rem 0.4rem 0.55rem;
+  background: #fff;
+  border: 1px solid var(--bbc-border);
+  border-radius: 999px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 10%);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.ai-selection-bar__spark {
+  flex-shrink: 0;
+  width: 1.75rem;
+  height: 1.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--bbc-red);
+  color: #fff;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.ai-selection-bar__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.ai-selection-bar__btn {
+  flex-shrink: 0;
+  border: 0;
+  background: transparent;
+  color: var(--bbc-black);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  padding: 0.45rem 0.55rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.ai-selection-bar__btn:hover {
+  background: var(--bbc-bg-soft);
+}
+
+.ai-selection-bar__ask {
+  flex: 1 1 6rem;
+  min-width: 5.5rem;
+}
+
+.ai-selection-bar__input {
+  width: 100%;
+  border: 0;
+  background: var(--bbc-bg-soft);
+  border-radius: 999px;
+  font-size: 13px;
+  line-height: 1.2;
+  padding: 0.5rem 0.75rem;
+  color: var(--bbc-black);
+  outline: none;
+}
+
+.ai-selection-bar__input::placeholder {
+  color: #8a8a8a;
+}
+
+.ai-selection-bar__close {
+  flex-shrink: 0;
+  border: 0;
+  background: transparent;
+  color: var(--bbc-gray);
+  font-size: 12px;
+  padding: 0.35rem 0.45rem;
+  border-radius: 999px;
+}
+
+.ai-selection-bar__close:hover {
+  color: var(--bbc-black);
+  background: var(--bbc-bg-soft);
+}
+
+@media (max-width: 480px) {
+  .ai-selection-bar {
+    border-radius: 1rem;
+    flex-wrap: wrap;
+    padding: 0.5rem;
+  }
+
+  .ai-selection-bar__ask {
+    flex: 1 1 100%;
+    order: 5;
+  }
+
+  .ai-selection-bar__input {
+    min-height: 2.5rem;
+  }
+}

@@ -13,7 +13,6 @@ import { AIBlock } from "./AIBlock";
 import { ArticleAskPanel } from "./ArticleAskPanel";
 import { ArticleKeyFacts } from "./ArticleKeyFacts";
 import { InlineActionPrompt } from "./InlineActionPrompt";
-import { MobileAiDock } from "./MobileAiDock";
 
 interface ArticleViewProps {
   article: Article;
@@ -201,8 +200,6 @@ export function ArticleView({ article, onAddSources }: ArticleViewProps) {
     paragraphIndex: number;
     offsets: { start: number; end: number };
   } | null>(null);
-  const [articleActionLoading, setArticleActionLoading] =
-    useState<ActionType | null>(null);
   const articleRef = useRef<HTMLElement>(null);
   const annotationsRef = useRef<AIAnnotation[]>([]);
   const isSelectingRef = useRef(false);
@@ -237,50 +234,86 @@ export function ArticleView({ article, onAddSources }: ArticleViewProps) {
     window.getSelection()?.removeAllRanges();
   }, []);
 
-  const getArticleFocusText = useCallback(() => {
-    const keyFacts = article.briefing?.keyFacts?.filter(Boolean) ?? [];
-    if (keyFacts.length > 0) {
-      return keyFacts.slice(0, 2).join(" ");
-    }
-    return (
-      article.paragraphs[0]?.text.slice(0, 280) ||
-      article.title
-    );
-  }, [article]);
+  const handlePendingAsk = useCallback(
+    async (question: string) => {
+      const pending = pendingSelection;
+      if (!pending) return;
 
-  const runArticleQuickAction = useCallback(
-    async (actionType: ActionType) => {
-      if (articleActionLoading) return;
-      const text = getArticleFocusText();
-      const paragraphIndex = 0;
-      const offsets = { start: 0, end: Math.min(text.length, 280) };
+      const trimmed = question.trim();
+      if (!trimmed) return;
 
       setPendingSelection(null);
-      setArticleActionLoading(actionType);
+      window.getSelection()?.removeAllRanges();
+
+      const id = crypto.randomUUID();
+      setActiveAnnotationId(id);
+      setAnnotations((prev) => [
+        ...prev.filter((a) => a.id !== id),
+        {
+          id,
+          paragraphIndex: pending.paragraphIndex,
+          selectedText: pending.text,
+          selectionStart: pending.offsets.start,
+          selectionEnd: pending.offsets.end,
+          activeAction: "explain",
+          responses: {},
+          hasResponse: false,
+          loading: "explain",
+          followUps: [{ id: crypto.randomUUID(), role: "user", text: trimmed }],
+          followUpLoading: false,
+        },
+      ]);
+
       try {
-        await startAnnotationRef.current(
-          text.slice(0, 280),
-          paragraphIndex,
-          actionType,
-          offsets
+        const paragraph = article.paragraphs[pending.paragraphIndex];
+        const res = await fetch("/api/ask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            question: `Apie pažymėtą tekstą „${pending.text}”: ${trimmed}`,
+            articleId: article.slug,
+            articleTitle: article.title,
+            articleText: paragraph?.text ?? pending.text,
+            history: [],
+          }),
+        });
+        if (!res.ok) throw new Error("Nepavyko gauti atsakymo");
+        const data = await res.json();
+        setAnnotations((prev) =>
+          prev.map((a) =>
+            a.id === id
+              ? {
+                  ...a,
+                  loading: null,
+                  hasResponse: true,
+                  responses: {
+                    ...a.responses,
+                    explain: {
+                      text: data.text,
+                      sources: data.sources ?? [],
+                      actionType: "explain" as const,
+                    },
+                  },
+                  followUps: [
+                    ...a.followUps,
+                    {
+                      id: crypto.randomUUID(),
+                      role: "assistant",
+                      text: data.text,
+                    },
+                  ],
+                }
+              : a
+          )
         );
-      } finally {
-        setArticleActionLoading(null);
+        onAddSources?.(data.sources ?? []);
+      } catch {
+        setAnnotations((prev) => prev.filter((a) => a.id !== id));
+        setActiveAnnotationId(null);
       }
     },
-    [articleActionLoading, getArticleFocusText]
+    [pendingSelection, article, onAddSources]
   );
-
-  const runDockAsk = useCallback(async (question: string) => {
-    const trimmed = question.trim();
-    if (!trimmed) return;
-    const panel = document.getElementById("article-ask-panel");
-    panel?.scrollIntoView({ behavior: "smooth", block: "center" });
-    // Užpildome įvestį per custom event — ArticleAskPanel klausysis
-    window.dispatchEvent(
-      new CustomEvent("article-ask-prefill", { detail: { question: trimmed } })
-    );
-  }, []);
 
   const fetchExplanation = async (
     selectedText: string,
@@ -633,6 +666,7 @@ export function ArticleView({ article, onAddSources }: ArticleViewProps) {
             <InlineActionPrompt
               selectedText={pendingSelection.text}
               onAction={handlePendingAction}
+              onAsk={(question) => void handlePendingAsk(question)}
               onClose={() => {
                 setPendingSelection(null);
                 window.getSelection()?.removeAllRanges();
@@ -663,13 +697,7 @@ export function ArticleView({ article, onAddSources }: ArticleViewProps) {
   );
 
   const renderAskPanel = () => (
-    <ArticleAskPanel
-      key="article-ask"
-      article={article}
-      showQuickActions
-      onQuickAction={(action) => void runArticleQuickAction(action)}
-      quickActionLoading={articleActionLoading}
-    />
+    <ArticleAskPanel key="article-ask" article={article} />
   );
 
   return (
@@ -692,14 +720,6 @@ export function ArticleView({ article, onAddSources }: ArticleViewProps) {
       </article>
 
       {showGlobalAskPanel && renderAskPanel()}
-
-      <div data-mobile-ai-dock>
-        <MobileAiDock
-          onQuickAction={(action) => void runArticleQuickAction(action)}
-          onAsk={runDockAsk}
-          loadingAction={articleActionLoading}
-        />
-      </div>
     </>
   );
 }

@@ -1,4 +1,4 @@
-export type ActionType = "detail" | "explain" | "alternative";
+export type ActionType = "detail" | "explain" | "summary";
 
 export interface Source {
   title: string;
@@ -90,36 +90,36 @@ export interface Article {
 
 export const ACTION_ORDER: ActionType[] = [
   "explain",
+  "summary",
   "detail",
-  "alternative",
 ];
 
 export const ACTION_LABELS: Record<ActionType, string> = {
+  explain: "Paaiškink",
+  summary: "Sutrauk",
   detail: "Detaliau",
-  explain: "Paaiškink man",
-  alternative: "Alternatyva",
 };
 
 export const ACTION_COLORS: Record<
   ActionType,
   { bg: string; active: string; mark: string; border: string }
 > = {
-  detail: {
-    bg: "bg-blue-50",
-    active: "bg-blue-600 text-white",
-    mark: "bg-blue-100 text-blue-900",
-    border: "border-blue-200",
-  },
   explain: {
     bg: "bg-emerald-50",
     active: "bg-emerald-600 text-white",
     mark: "bg-emerald-100 text-emerald-900",
     border: "border-emerald-200",
   },
-  alternative: {
-    bg: "bg-purple-50",
-    active: "bg-purple-600 text-white",
-    mark: "bg-purple-100 text-purple-900",
-    border: "border-purple-200",
+  summary: {
+    bg: "bg-amber-50",
+    active: "bg-amber-600 text-white",
+    mark: "bg-amber-100 text-amber-900",
+    border: "border-amber-200",
+  },
+  detail: {
+    bg: "bg-blue-50",
+    active: "bg-blue-600 text-white",
+    mark: "bg-blue-100 text-blue-900",
+    border: "border-blue-200",
   },
 };

@@ -42,10 +42,8 @@ const RESPONSES: Record<
     `„${text}" — tai terminas, reiškiantis, kad centrinis bankas „spausdina" pinigus ir perka obligacijas iš rinkos, kad paskatintų ekonomiką. ` +
     `Paprastai tariant: kai ekonomika lėtėja, bankas į marketą įleidžia daugiau pinigų, kad žmonės ir įmonės lengviau skolintųsi ir leistų. ` +
     `Dabar ECB šios priemonės nebevartoja — vietoj to jis kelia palūkanas, kad pinigų būtų mažiau ir infliacija kristų.`,
-  alternative: (text) =>
-    `Kalbant apie „${text}", ne visi ekonomistai sutinka su oficialia ECB pozicija. ` +
-    `Dalies ekspertų nuomone, per griežta monetarinė politika jau dabar stabdo augimą ir didina nedarbą, nors infliacija ir taip lėtėja dėl energijos kainų stabilizavimo. ` +
-    `Jie argumentuoja, kad centrinis bankas reaguoja į praeities duomenis, o ne į ateities rizikas — ir kad smulkus verslas bei jaunos šeimos, ieškančios būsto, moka per didelę kainą.`,
+  summary: (text) =>
+    `Esmė: „${text}" — ECB griežtina pinigų politiką, kad suvaldytų infliaciją. Tai brangina skolinimąsi namų ūkiams ir verslui.`,
 };
 
 export function getMockResponse(

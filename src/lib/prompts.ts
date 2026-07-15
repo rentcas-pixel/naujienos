@@ -57,12 +57,12 @@ const EXTERNAL_KNOWLEDGE_WITH_SEARCH = (searchContext = "") =>
   `${EXTERNAL_KNOWLEDGE_RULES}${buildSearchRules(searchContext)}`;
 
 const ACTION_INSTRUCTIONS: Record<ActionType, string> = {
-  detail:
-    "Pateik platesnį kontekstą ta pačia kryptimi kaip straipsnis. Išplėsk faktus, istorinį kontekstą ir pasekmes. Jei kalbama apie finansus — naudok naujausius viešai skelbiamus duomenis, ne senus. Tonas: profesionalus. 2–3 pastraipos.",
   explain:
-    "Paaiškink pažymėtą terminą ar sąvoką paprastai, be žargono. Tarsi aiškintum draugui, kuris nėra ekonomistas. Naudok pavyzdžius iš kasdienio gyvenimo. 1–2 pastraipos.",
-  alternative:
-    "Pateik kitą nuomonę ar prieštaraujantį požiūrį į pažymėtą temą. Parodyk, ką kritikuoja ar ką kitaip vertina kiti ekspertai. Būk objektyvus, ne agresyvus. 2–3 pastraipos.",
+    "Paaiškink pažymėtą tekstą paprastai, be žargono. Trumpai ir aiškiai — tarsi draugui. 1–2 pastraipos.",
+  summary:
+    "Sutrauk pažymėtą tekstą į 1–3 trumpus sakinius. Tik esmė, be įvadų ir be perteklinio konteksto.",
+  detail:
+    "Pateik platesnį kontekstą apie pažymėtą temą. Išplėsk faktus, priežastis ir pasekmes. Tonas: profesionalus. 2–3 pastraipos.",
 };
 
 export function buildSystemPrompt(actionType: ActionType): string {
