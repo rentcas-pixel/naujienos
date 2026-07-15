@@ -1,15 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import type { ActionType, Article, FollowUpMessage } from "@/lib/types";
 import { AiAskForm, AiPanel } from "./AiPanel";
-
-const SUGGESTED_PROMPTS = [
-  "Kokia šios temos esmė?",
-  "Ką tai reiškia paprastai?",
-  "Kokios pasekmės žmonėms?",
-  "Kas čia nepatvirtinta?",
-];
 
 interface ArticleAskPanelProps {
   article: Article;
@@ -19,6 +12,7 @@ interface ArticleAskPanelProps {
   actionType?: ActionType;
 }
 
+/** Tik po AI atsako — papildomam klausimui apie pažymėtą tekstą. */
 export function ArticleAskPanel({
   article,
   inline = false,
@@ -96,21 +90,6 @@ export function ArticleAskPanel({
     }
   };
 
-  const runAskRef = useRef(runAsk);
-  runAskRef.current = runAsk;
-
-  useEffect(() => {
-    const onPrefill = (event: Event) => {
-      const detail = (event as CustomEvent<{ question?: string }>).detail;
-      const next = detail?.question?.trim();
-      if (!next) return;
-      void runAskRef.current(next);
-    };
-
-    window.addEventListener("article-ask-prefill", onPrefill);
-    return () => window.removeEventListener("article-ask-prefill", onPrefill);
-  }, []);
-
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     await runAsk(question.trim());
@@ -118,32 +97,11 @@ export function ArticleAskPanel({
 
   return (
     <AiPanel
-      title="Klauskite AI"
-      subtitle={
-        selectedText
-          ? "Užduokite savo klausimą apie pažymėtą temą ar visą straipsnį."
-          : "Pasirinkite promptą arba užduokite savo klausimą apie straipsnį."
-      }
-      attached={inline && Boolean(selectedText)}
-      className={inline ? "my-0" : "mt-8 mb-8"}
+      title="Klauskite toliau"
+      subtitle="Papildomas klausimas apie pažymėtą tekstą."
+      attached={inline}
+      className="my-0"
     >
-      <div id={inline ? undefined : "article-ask-panel"}>
-      {!selectedText && (
-        <div className="mb-4 flex flex-wrap gap-2">
-          {SUGGESTED_PROMPTS.map((prompt) => (
-            <button
-              key={prompt}
-              type="button"
-              disabled={loading}
-              onClick={() => void runAsk(prompt)}
-              className="bbc-ai-chip"
-            >
-              {prompt}
-            </button>
-          ))}
-        </div>
-      )}
-
       {messages.length > 0 && (
         <div className="mb-4 space-y-0">
           {messages.map((message) => (
@@ -176,13 +134,9 @@ export function ArticleAskPanel({
         onChange={setQuestion}
         onSubmit={handleSubmit}
         loading={loading}
-        placeholder={
-          selectedText
-            ? "Pvz.: Ką tai reiškia paprastai? Kas dar svarbu?"
-            : "Pvz.: Kokia šios temos esmė? Ką verta žinoti?"
-        }
+        placeholder="Klausk..."
+        buttonLabel="Klausk"
       />
-      </div>
     </AiPanel>
   );
 }

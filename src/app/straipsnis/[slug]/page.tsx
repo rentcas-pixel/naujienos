@@ -112,7 +112,8 @@ export default async function ArticlePage({ params }: PageProps) {
         )}
 
         <p className="bbc-meta mb-8 pb-6 border-b border-bbc-border">
-          Pažymėkite bet kurią teksto dalį AI paaiškinimui.
+          Pažymėkite tekstą — po juo atsiras AI juosta: Paaiškink · Sutrauk ·
+          Detaliau · Klausk…
         </p>
 
         <ArticlePageClient article={articleWithRelated} />

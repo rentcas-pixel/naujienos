@@ -329,36 +329,38 @@ mark {
 .ai-selection-bar {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  width: 100%;
+  gap: 0.35rem;
+  width: max-content;
   max-width: 100%;
-  padding: 0.4rem 0.45rem 0.4rem 0.55rem;
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
+  padding: 0.35rem 0.4rem 0.35rem 0.4rem;
   background: #fff;
-  border: 1px solid var(--bbc-border);
+  border: 1px solid #e0e0e0;
   border-radius: 999px;
-  box-shadow: 0 8px 24px rgb(0 0 0 / 10%);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 12%);
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
 
 .ai-selection-bar__spark {
   flex-shrink: 0;
-  width: 1.75rem;
-  height: 1.75rem;
+  width: 1.65rem;
+  height: 1.65rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: 999px;
   background: var(--bbc-red);
   color: #fff;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   line-height: 1;
 }
 
 .ai-selection-bar__actions {
   display: flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.1rem;
   flex-shrink: 0;
 }
 
@@ -370,28 +372,29 @@ mark {
   font-size: 13px;
   font-weight: 700;
   line-height: 1.2;
-  padding: 0.45rem 0.55rem;
+  padding: 0.4rem 0.5rem;
   border-radius: 999px;
   white-space: nowrap;
 }
 
-.ai-selection-bar__btn:hover {
-  background: var(--bbc-bg-soft);
+.ai-selection-bar__btn:hover,
+.ai-selection-bar__btn:active {
+  background: #f3f3f3;
 }
 
 .ai-selection-bar__ask {
-  flex: 1 1 6rem;
-  min-width: 5.5rem;
+  flex: 0 1 7.5rem;
+  min-width: 5rem;
 }
 
 .ai-selection-bar__input {
   width: 100%;
   border: 0;
-  background: var(--bbc-bg-soft);
+  background: #f4f4f4;
   border-radius: 999px;
   font-size: 13px;
   line-height: 1.2;
-  padding: 0.5rem 0.75rem;
+  padding: 0.45rem 0.7rem;
   color: var(--bbc-black);
   outline: none;
 }
@@ -405,29 +408,24 @@ mark {
   border: 0;
   background: transparent;
   color: var(--bbc-gray);
-  font-size: 12px;
-  padding: 0.35rem 0.45rem;
+  font-size: 11px;
+  padding: 0.3rem 0.4rem;
   border-radius: 999px;
 }
 
 .ai-selection-bar__close:hover {
   color: var(--bbc-black);
-  background: var(--bbc-bg-soft);
+  background: #f3f3f3;
 }
 
 @media (max-width: 480px) {
   .ai-selection-bar {
-    border-radius: 1rem;
-    flex-wrap: wrap;
-    padding: 0.5rem;
+    width: 100%;
+    max-width: 100%;
   }
 
   .ai-selection-bar__ask {
-    flex: 1 1 100%;
-    order: 5;
-  }
-
-  .ai-selection-bar__input {
-    min-height: 2.5rem;
+    flex: 1 1 auto;
+    min-width: 4.5rem;
   }
 }

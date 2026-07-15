@@ -203,6 +203,7 @@ export function ArticleView({ article, onAddSources }: ArticleViewProps) {
   const articleRef = useRef<HTMLElement>(null);
   const annotationsRef = useRef<AIAnnotation[]>([]);
   const isSelectingRef = useRef(false);
+  const selectionTimerRef = useRef<number | null>(null);
   const startAnnotationRef = useRef<
     (
       text: string,
@@ -473,31 +474,51 @@ export function ArticleView({ article, onAddSources }: ArticleViewProps) {
   }, [article.paragraphs]);
 
   useEffect(() => {
+    const scheduleRead = (delay: number) => {
+      if (selectionTimerRef.current) {
+        window.clearTimeout(selectionTimerRef.current);
+      }
+      selectionTimerRef.current = window.setTimeout(() => {
+        selectionTimerRef.current = null;
+        readSelection();
+      }, delay);
+    };
+
     const onPointerDown = (e: PointerEvent) => {
       const target = e.target as Element;
       if (target.closest("[data-ai-block]")) return;
       if (target.closest("[data-inline-prompt]")) return;
-      if (target.closest("[data-mobile-ai-dock]")) return;
       if (target.closest("mark[role='button']")) return;
       isSelectingRef.current = true;
     };
 
     const onPointerUp = () => {
       isSelectingRef.current = false;
-      // Ilgesnis delay mobilėje — native selection menu spėja pasirodyti
-      const delay = window.matchMedia("(pointer: coarse)").matches ? 280 : 40;
-      setTimeout(readSelection, delay);
+      const delay = window.matchMedia("(pointer: coarse)").matches ? 320 : 40;
+      scheduleRead(delay);
+    };
+
+    const onSelectionChange = () => {
+      if (isSelectingRef.current) return;
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed) return;
+      const delay = window.matchMedia("(pointer: coarse)").matches ? 350 : 80;
+      scheduleRead(delay);
     };
 
     document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("pointerup", onPointerUp);
-    document.addEventListener("selectionchange", () => {
-      // no-op marker for Safari selection lifecycle
-    });
+    document.addEventListener("touchend", onPointerUp, { passive: true });
+    document.addEventListener("selectionchange", onSelectionChange);
 
     return () => {
+      if (selectionTimerRef.current) {
+        window.clearTimeout(selectionTimerRef.current);
+      }
       document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("pointerup", onPointerUp);
+      document.removeEventListener("touchend", onPointerUp);
+      document.removeEventListener("selectionchange", onSelectionChange);
     };
   }, [readSelection]);
 
@@ -566,7 +587,6 @@ export function ArticleView({ article, onAddSources }: ArticleViewProps) {
     ? annotations.find((a) => a.id === activeAnnotationId)
     : null;
 
-  const showGlobalAskPanel = !activeBlock;
   const keyFactCount = article.briefing?.keyFacts?.length ?? 0;
 
   const handlePendingAction = (action: ActionType) => {
@@ -696,10 +716,6 @@ export function ArticleView({ article, onAddSources }: ArticleViewProps) {
     </div>
   );
 
-  const renderAskPanel = () => (
-    <ArticleAskPanel key="article-ask" article={article} />
-  );
-
   return (
     <>
       <article
@@ -718,8 +734,6 @@ export function ArticleView({ article, onAddSources }: ArticleViewProps) {
           renderParagraphBlock(keyFactCount + offset)
         )}
       </article>
-
-      {showGlobalAskPanel && renderAskPanel()}
     </>
   );
 }
