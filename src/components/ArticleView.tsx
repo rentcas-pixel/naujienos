@@ -659,6 +659,62 @@ export function ArticleView({ article, onAddSources }: ArticleViewProps) {
       );
     }
 
+    if (isPendingParagraph && pendingSelection) {
+      const { start, end } = pendingSelection.offsets;
+      const safeStart = Math.max(0, Math.min(start, paragraph.text.length));
+      const safeEnd = Math.max(safeStart, Math.min(end, paragraph.text.length));
+      const before = paragraph.text.slice(0, safeStart);
+      const selected = paragraph.text.slice(safeStart, safeEnd);
+      const after = paragraph.text.slice(safeEnd);
+      const textClass = options?.keyFact
+        ? "article-key-facts__text text-[17px] leading-[1.55] text-bbc-black"
+        : "text-[17px] leading-[1.75] text-gray-800";
+
+      return (
+        <div
+          key={paragraph.id}
+          className={options?.className ?? "mb-6"}
+          data-paragraph-index={index}
+        >
+          <p className={textClass} data-paragraph-text>
+            {before.length > 0 &&
+              highlightText(
+                before,
+                paragraphAnnotations,
+                activeAnnotationId,
+                activateAnnotation
+              )}
+            <mark className="rounded px-0.5 not-italic bg-blue-100 text-bbc-black">
+              {selected}
+            </mark>
+          </p>
+
+          <div data-inline-prompt>
+            <InlineActionPrompt
+              selectedText={pendingSelection.text}
+              onAction={handlePendingAction}
+              onAsk={(question) => void handlePendingAsk(question)}
+              onClose={() => {
+                setPendingSelection(null);
+                window.getSelection()?.removeAllRanges();
+              }}
+            />
+          </div>
+
+          {after.length > 0 && (
+            <p className={textClass}>
+              {highlightText(
+                after,
+                paragraphAnnotations,
+                activeAnnotationId,
+                activateAnnotation
+              )}
+            </p>
+          )}
+        </div>
+      );
+    }
+
     return (
       <div
         key={paragraph.id}
@@ -680,20 +736,6 @@ export function ArticleView({ article, onAddSources }: ArticleViewProps) {
             activateAnnotation
           )}
         </p>
-
-        {isPendingParagraph && pendingSelection && (
-          <div data-inline-prompt>
-            <InlineActionPrompt
-              selectedText={pendingSelection.text}
-              onAction={handlePendingAction}
-              onAsk={(question) => void handlePendingAsk(question)}
-              onClose={() => {
-                setPendingSelection(null);
-                window.getSelection()?.removeAllRanges();
-              }}
-            />
-          </div>
-        )}
       </div>
     );
   };
