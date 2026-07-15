@@ -7,11 +7,18 @@ interface NewsHomeProps {
   pageTitle?: string;
   showCategorySections?: boolean;
   categorySections?: Array<{ category: NewsCategory; items: NewsListItem[] }>;
+  trendingLabels?: string[];
 }
 
 function MetaLine({ item }: { item: NewsListItem }) {
   return (
     <p className="bbc-meta mt-2">
+      {item.isTrending && (
+        <>
+          <span className="text-bbc-red font-bold">Tendencija</span>
+          <span className="bbc-meta__dot">|</span>
+        </>
+      )}
       <span>{item.publishedAt}</span>
       <span className="bbc-meta__dot">|</span>
       <span>{item.category}</span>
@@ -170,6 +177,7 @@ export function NewsHome({
   pageTitle = "Naujausios",
   showCategorySections = true,
   categorySections,
+  trendingLabels = [],
 }: NewsHomeProps) {
   if (items.length === 0) {
     return (
@@ -193,6 +201,21 @@ export function NewsHome({
   return (
     <div>
       <h1 className="bbc-page-title">{pageTitle}</h1>
+
+      {trendingLabels.length > 0 && (
+        <div className="mb-6 pb-4 border-b border-bbc-border">
+          <p className="text-[12px] font-bold uppercase tracking-wide text-bbc-gray mb-2">
+            Dabar aktualu
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {trendingLabels.map((label) => (
+              <span key={label} className="bbc-ai-chip">
+                {label}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {hero && sidebar.length > 0 && <TopStories hero={hero} sidebar={sidebar} />}
       <PromoGrid items={promo} />

@@ -15,7 +15,7 @@ export default async function Home({ searchParams }: HomeProps) {
   const pageTitle = paramToNavTab(kategorija);
 
   if (!category) {
-    const { todayNews, displayNews, categorySections } =
+    const { todayNews, displayNews, categorySections, trendingLabels } =
       await getHomepageWithSections();
 
     return (
@@ -34,14 +34,15 @@ export default async function Home({ searchParams }: HomeProps) {
             pageTitle={pageTitle}
             showCategorySections
             categorySections={categorySections}
+            trendingLabels={trendingLabels}
           />
         </main>
 
         <footer className="bg-bbc-black text-white mt-8">
           <div className="max-w-[1280px] mx-auto px-4 py-8">
             <p className="text-[13px] text-[#b0b0b0] text-center">
-              Naujienos agreguojamos iš viešų RSS šaltinių · Atnaujinama kas 15
-              min.
+              Naujienos agreguojamos iš viešų RSS šaltinių · Rūšiuojama pagal
+              aktualumą · Atnaujinama kas 15 min.
             </p>
           </div>
         </footer>

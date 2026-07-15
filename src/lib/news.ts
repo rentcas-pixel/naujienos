@@ -6,6 +6,7 @@ import {
   categoryPreferenceScore,
   resolveNewsCategory,
 } from "./news-category";
+import { getTrendingSnapshot, rankByTrending } from "./trending";
 import { fetchRssFeed, type RssItem } from "./rss-client";
 import {
   estimateReadingTime,
@@ -305,7 +306,7 @@ function filterRawOnly(
   return filtered.slice(0, limit);
 }
 
-function rawToListItem(item: RawNewsItem): NewsListItem {
+function rawToListItem(item: RawNewsItem, isTrending = false): NewsListItem {
   const publishedDate = new Date(item.publishedDate);
   return {
     slug: item.slug,
@@ -318,19 +319,26 @@ function rawToListItem(item: RawNewsItem): NewsListItem {
     publishedLabel: formatLrtDateTime(publishedDate),
     isToday: isToday(publishedDate),
     imageUrl: item.imageUrl,
+    isTrending: isTrending || undefined,
   };
 }
 
-function filterRawItems(
+async function toRankedListItems(
   items: RawNewsItem[],
-  options?: {
-    sourceId?: string;
-    category?: string;
-    todayOnly?: boolean;
-    limit?: number;
-  }
-): NewsListItem[] {
-  return filterRawOnly(items, options).map(rawToListItem);
+  limit?: number
+): Promise<NewsListItem[]> {
+  const snapshot = await getTrendingSnapshot();
+  const ranked = rankByTrending(
+    items.map((item) => ({
+      ...item,
+      publishedDate: item.publishedDate,
+    })),
+    snapshot
+  );
+  const sliced = typeof limit === "number" ? ranked.slice(0, limit) : ranked;
+  return sliced.map((item) =>
+    rawToListItem(item, Boolean(item.isTrending))
+  );
 }
 
 function rawToArticle(raw: RawNewsItem): Article {
@@ -364,6 +372,7 @@ export interface NewsListItem {
   publishedLabel: string;
   isToday: boolean;
   imageUrl?: string;
+  isTrending?: boolean;
 }
 
 export async function getLatestNews(options?: {
@@ -378,48 +387,65 @@ export async function getLatestNews(options?: {
     sourceId: options?.sourceId,
     category: options?.category,
     todayOnly: options?.todayOnly,
-    limit: options?.limit ?? 80,
+    limit: Math.max(options?.limit ?? 80, 80),
   });
 
   filtered = await editRawItems(filtered, { budgetMs: 4000, maxItems: 16 });
 
-  return filtered.map(rawToListItem);
+  return toRankedListItems(filtered, options?.limit ?? 80);
 }
 
 export async function getHomepageWithSections(): Promise<{
   todayNews: NewsListItem[];
   displayNews: NewsListItem[];
   categorySections: Array<{ category: NewsCategory; items: NewsListItem[] }>;
+  trendingLabels: string[];
 }> {
-  const raw = await getCachedRssNews();
+  const [raw, snapshot] = await Promise.all([
+    getCachedRssNews(),
+    getTrendingSnapshot(),
+  ]);
 
-  const todayItems = filterRawOnly(raw, { todayOnly: true, limit: 40 });
-  const displayItems =
-    todayItems.length >= 8 ? todayItems : filterRawOnly(raw, { limit: 40 });
+  const todayItems = filterRawOnly(raw, { todayOnly: true, limit: 60 });
+  const displayPool =
+    todayItems.length >= 8 ? todayItems : filterRawOnly(raw, { limit: 60 });
   const sectionItems = NEWS_CATEGORIES.flatMap((cat) =>
-    filterRawOnly(raw, { category: cat, limit: 4 })
+    filterRawOnly(raw, { category: cat, limit: 8 })
   );
 
   const slugSet = new Set(
-    [...displayItems, ...sectionItems].map((item) => item.slug)
+    [...displayPool, ...sectionItems].map((item) => item.slug)
   );
   const toEdit = raw.filter((item) => slugSet.has(item.slug));
-  // Hard budget — puslapis neturi kabėti ant OpenAI
   const enriched = await enrichRawWithEditedHeadlines(raw, toEdit, {
     budgetMs: 3500,
     maxItems: 12,
   });
 
-  const todayNews = filterRawItems(enriched, { todayOnly: true, limit: 40 });
-  const displayNews =
-    todayNews.length >= 8 ? todayNews : filterRawItems(enriched, { limit: 40 });
+  const todayPool = filterRawOnly(enriched, { todayOnly: true, limit: 60 });
+  const displaySource =
+    todayPool.length >= 8
+      ? todayPool
+      : filterRawOnly(enriched, { limit: 60 });
 
-  const categorySections = NEWS_CATEGORIES.map((cat) => ({
-    category: cat,
-    items: filterRawItems(enriched, { category: cat, limit: 4 }),
-  })).filter((section) => section.items.length > 0);
+  const displayNews = await toRankedListItems(displaySource, 40);
+  const todayNews = displayNews.filter((item) => item.isToday);
 
-  return { todayNews, displayNews, categorySections };
+  const categorySections = (
+    await Promise.all(
+      NEWS_CATEGORIES.map(async (cat) => ({
+        category: cat,
+        items: await toRankedListItems(
+          filterRawOnly(enriched, { category: cat, limit: 12 }),
+          4
+        ),
+      }))
+    )
+  ).filter((section) => section.items.length > 0);
+
+  const trendingLabels = snapshot.topics.slice(0, 6).map((topic) => topic.label);
+
+  return { todayNews, displayNews, categorySections, trendingLabels };
 }
 
 export async function getNewsArticleBySlug(
