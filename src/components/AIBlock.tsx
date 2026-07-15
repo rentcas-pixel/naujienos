@@ -3,6 +3,7 @@
 import type { ActionType, AIAnnotation } from "@/lib/types";
 import { ACTION_LABELS, ACTION_ORDER } from "@/lib/types";
 import { AiPanel } from "./AiPanel";
+import { AiThinkingStatus } from "./AiThinkingStatus";
 
 interface AIBlockProps {
   annotation: AIAnnotation;
@@ -36,24 +37,29 @@ export function AIBlock({
               onClick={() => onSwitchAction(action)}
               disabled={!!loading}
               className={`bbc-ai-tab ${isActive ? "bbc-ai-tab--active" : ""} ${
-                isLoading ? "opacity-60 cursor-wait" : ""
+                isLoading ? "bbc-ai-tab--loading" : ""
               }`}
             >
-              {isLoading ? "..." : ACTION_LABELS[action]}
+              {isLoading ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="ai-thinking__spinner ai-thinking__spinner--sm" />
+                  {ACTION_LABELS[action]}
+                </span>
+              ) : (
+                ACTION_LABELS[action]
+              )}
             </button>
           );
         })}
       </div>
 
       {loading ? (
-        <div className="space-y-2 animate-pulse">
-          <div className="h-4 bg-bbc-bg-soft w-full" />
-          <div className="h-4 bg-bbc-bg-soft w-5/6" />
-          <div className="h-4 bg-bbc-bg-soft w-4/6" />
-        </div>
+        <AiThinkingStatus action={loading} />
       ) : response ? (
         <>
-          <p className="text-[15px] leading-relaxed text-bbc-black">{response.text}</p>
+          <p className="text-[15px] leading-relaxed text-bbc-black">
+            {response.text}
+          </p>
 
           {response.sources.length > 0 && (
             <div className="mt-3 pt-3 border-t border-bbc-border">
@@ -74,7 +80,6 @@ export function AIBlock({
               </ul>
             </div>
           )}
-
         </>
       ) : null}
     </AiPanel>

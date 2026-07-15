@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { ActionType, Article, FollowUpMessage } from "@/lib/types";
 import { AiAskForm, AiPanel } from "./AiPanel";
+import { AiThinkingStatus } from "./AiThinkingStatus";
 
 interface ArticleAskPanelProps {
   article: Article;
@@ -119,13 +120,12 @@ export function ArticleAskPanel({
               {message.text}
             </div>
           ))}
+        </div>
+      )}
 
-          {loading && (
-            <div className="bbc-ai-message space-y-2 animate-pulse">
-              <div className="h-3 bg-bbc-bg-soft w-4/5" />
-              <div className="h-3 bg-bbc-bg-soft w-3/5" />
-            </div>
-          )}
+      {loading && (
+        <div className="mb-4">
+          <AiThinkingStatus label="AI atsako…" />
         </div>
       )}
 
