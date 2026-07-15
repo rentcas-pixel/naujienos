@@ -12,6 +12,8 @@ import { ACTION_COLORS } from "@/lib/types";
 import { AIBlock } from "./AIBlock";
 import { ArticleAskPanel } from "./ArticleAskPanel";
 import { ArticleKeyFacts } from "./ArticleKeyFacts";
+import { InlineActionPrompt } from "./InlineActionPrompt";
+import { MobileAiDock } from "./MobileAiDock";
 
 interface ArticleViewProps {
   article: Article;
@@ -194,6 +196,13 @@ export function ArticleView({ article, onAddSources }: ArticleViewProps) {
   const [activeAnnotationId, setActiveAnnotationId] = useState<string | null>(
     null
   );
+  const [pendingSelection, setPendingSelection] = useState<{
+    text: string;
+    paragraphIndex: number;
+    offsets: { start: number; end: number };
+  } | null>(null);
+  const [articleActionLoading, setArticleActionLoading] =
+    useState<ActionType | null>(null);
   const articleRef = useRef<HTMLElement>(null);
   const annotationsRef = useRef<AIAnnotation[]>([]);
   const isSelectingRef = useRef(false);
@@ -218,12 +227,59 @@ export function ArticleView({ article, onAddSources }: ArticleViewProps) {
 
   const closeActiveBlock = useCallback(() => {
     setActiveAnnotationId(null);
+    setPendingSelection(null);
     window.getSelection()?.removeAllRanges();
   }, []);
 
   const activateAnnotation = useCallback((id: string) => {
+    setPendingSelection(null);
     setActiveAnnotationId(id);
     window.getSelection()?.removeAllRanges();
+  }, []);
+
+  const getArticleFocusText = useCallback(() => {
+    const keyFacts = article.briefing?.keyFacts?.filter(Boolean) ?? [];
+    if (keyFacts.length > 0) {
+      return keyFacts.slice(0, 2).join(" ");
+    }
+    return (
+      article.paragraphs[0]?.text.slice(0, 280) ||
+      article.title
+    );
+  }, [article]);
+
+  const runArticleQuickAction = useCallback(
+    async (actionType: ActionType) => {
+      if (articleActionLoading) return;
+      const text = getArticleFocusText();
+      const paragraphIndex = 0;
+      const offsets = { start: 0, end: Math.min(text.length, 280) };
+
+      setPendingSelection(null);
+      setArticleActionLoading(actionType);
+      try {
+        await startAnnotationRef.current(
+          text.slice(0, 280),
+          paragraphIndex,
+          actionType,
+          offsets
+        );
+      } finally {
+        setArticleActionLoading(null);
+      }
+    },
+    [articleActionLoading, getArticleFocusText]
+  );
+
+  const runDockAsk = useCallback(async (question: string) => {
+    const trimmed = question.trim();
+    if (!trimmed) return;
+    const panel = document.getElementById("article-ask-panel");
+    panel?.scrollIntoView({ behavior: "smooth", block: "center" });
+    // Užpildome įvestį per custom event — ArticleAskPanel klausysis
+    window.dispatchEvent(
+      new CustomEvent("article-ask-prefill", { detail: { question: trimmed } })
+    );
   }, []);
 
   const fetchExplanation = async (
@@ -340,7 +396,9 @@ export function ArticleView({ article, onAddSources }: ArticleViewProps) {
     if (!articleEl || isSelectingRef.current) return;
 
     const sel = window.getSelection();
-    if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
+      return;
+    }
 
     const text = sel.toString().trim();
     if (text.length < 2) return;
@@ -348,6 +406,7 @@ export function ArticleView({ article, onAddSources }: ArticleViewProps) {
     const range = sel.getRangeAt(0);
     if (!articleEl.contains(range.commonAncestorContainer)) return;
 
+    // Jei spaudžiame AI juostą / promptus — nenuimam žymėjimo dar
     const paragraphIndex = findParagraphIndex(articleEl, range, text);
     const paragraphEl = articleEl.querySelector(
       `[data-paragraph-index="${paragraphIndex}"] [data-paragraph-text]`
@@ -370,29 +429,38 @@ export function ArticleView({ article, onAddSources }: ArticleViewProps) {
     );
 
     if (existing?.hasResponse) {
+      setPendingSelection(null);
       setActiveAnnotationId(existing.id);
       window.getSelection()?.removeAllRanges();
       return;
     }
 
-    void startAnnotationRef.current(text, paragraphIndex, "explain", offsets);
+    setActiveAnnotationId(null);
+    setPendingSelection({ text, paragraphIndex, offsets });
   }, [article.paragraphs]);
 
   useEffect(() => {
     const onPointerDown = (e: PointerEvent) => {
       const target = e.target as Element;
       if (target.closest("[data-ai-block]")) return;
+      if (target.closest("[data-inline-prompt]")) return;
+      if (target.closest("[data-mobile-ai-dock]")) return;
       if (target.closest("mark[role='button']")) return;
       isSelectingRef.current = true;
     };
 
     const onPointerUp = () => {
       isSelectingRef.current = false;
-      setTimeout(readSelection, 50);
+      // Ilgesnis delay mobilėje — native selection menu spėja pasirodyti
+      const delay = window.matchMedia("(pointer: coarse)").matches ? 280 : 40;
+      setTimeout(readSelection, delay);
     };
 
     document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("pointerup", onPointerUp);
+    document.addEventListener("selectionchange", () => {
+      // no-op marker for Safari selection lifecycle
+    });
 
     return () => {
       document.removeEventListener("pointerdown", onPointerDown);
@@ -466,8 +534,14 @@ export function ArticleView({ article, onAddSources }: ArticleViewProps) {
     : null;
 
   const showGlobalAskPanel = !activeBlock;
-
   const keyFactCount = article.briefing?.keyFacts?.length ?? 0;
+
+  const handlePendingAction = (action: ActionType) => {
+    if (!pendingSelection) return;
+    const { text, paragraphIndex, offsets } = pendingSelection;
+    setPendingSelection(null);
+    void startAnnotationRef.current(text, paragraphIndex, action, offsets);
+  };
 
   const renderParagraphBlock = (
     index: number,
@@ -478,6 +552,7 @@ export function ArticleView({ article, onAddSources }: ArticleViewProps) {
 
     const paragraphAnnotations = annotationsForParagraph(index);
     const isActiveParagraph = activeBlock?.paragraphIndex === index;
+    const isPendingParagraph = pendingSelection?.paragraphIndex === index;
 
     if (isActiveParagraph && activeBlock) {
       const { start, end } = getAnnotationOffsets(
@@ -552,6 +627,19 @@ export function ArticleView({ article, onAddSources }: ArticleViewProps) {
             activateAnnotation
           )}
         </p>
+
+        {isPendingParagraph && pendingSelection && (
+          <div data-inline-prompt>
+            <InlineActionPrompt
+              selectedText={pendingSelection.text}
+              onAction={handlePendingAction}
+              onClose={() => {
+                setPendingSelection(null);
+                window.getSelection()?.removeAllRanges();
+              }}
+            />
+          </div>
+        )}
       </div>
     );
   };
@@ -575,7 +663,13 @@ export function ArticleView({ article, onAddSources }: ArticleViewProps) {
   );
 
   const renderAskPanel = () => (
-    <ArticleAskPanel key="article-ask" article={article} />
+    <ArticleAskPanel
+      key="article-ask"
+      article={article}
+      showQuickActions
+      onQuickAction={(action) => void runArticleQuickAction(action)}
+      quickActionLoading={articleActionLoading}
+    />
   );
 
   return (
@@ -598,6 +692,14 @@ export function ArticleView({ article, onAddSources }: ArticleViewProps) {
       </article>
 
       {showGlobalAskPanel && renderAskPanel()}
+
+      <div data-mobile-ai-dock>
+        <MobileAiDock
+          onQuickAction={(action) => void runArticleQuickAction(action)}
+          onAsk={runDockAsk}
+          loadingAction={articleActionLoading}
+        />
+      </div>
     </>
   );
 }

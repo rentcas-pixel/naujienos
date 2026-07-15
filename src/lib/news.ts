@@ -2,6 +2,10 @@ import { createHash } from "crypto";
 import { unstable_cache } from "next/cache";
 import type { Article, ArticleParagraph } from "./types";
 import { LT_RSS_FEEDS, NEWS_CATEGORIES, type NewsCategory } from "./rss-feeds";
+import {
+  categoryPreferenceScore,
+  resolveNewsCategory,
+} from "./news-category";
 import { fetchRssFeed, type RssItem } from "./rss-client";
 import {
   estimateReadingTime,
@@ -58,9 +62,18 @@ function itemRichness(item: RawNewsItem): number {
 }
 
 function pickPreferredDuplicate(a: RawNewsItem, b: RawNewsItem): RawNewsItem {
+  const categoryDelta =
+    categoryPreferenceScore(a.category) - categoryPreferenceScore(b.category);
+  // Jei viena kopija aiškiau kategorizuota (Pasaulis vs Lietuva) — rinkis ją
+  if (Math.abs(categoryDelta) >= 2) {
+    return categoryDelta > 0 ? a : b;
+  }
+
   const scoreA = itemRichness(a);
   const scoreB = itemRichness(b);
   if (scoreA !== scoreB) return scoreA > scoreB ? a : b;
+
+  if (categoryDelta !== 0) return categoryDelta > 0 ? a : b;
 
   return new Date(a.publishedDate) >= new Date(b.publishedDate) ? a : b;
 }
@@ -176,6 +189,13 @@ function itemToRaw(
 
   const excerpt = cleanText.slice(0, 220) + (cleanText.length > 220 ? "…" : "");
   const titleText = stripHtml(item.title);
+  const category = resolveNewsCategory({
+    feedCategory: feed.category,
+    url: link,
+    rssCategories: item.categories,
+    title: titleText,
+    excerpt,
+  });
 
   return {
     slug: slugFromUrl(link),
@@ -183,7 +203,7 @@ function itemToRaw(
     excerpt,
     source: feed.name,
     sourceId: feed.id,
-    category: feed.category,
+    category,
     originalUrl: link,
     publishedDate: publishedDate.toISOString(),
     paragraphs: textToParagraphs(cleanText),
@@ -218,7 +238,7 @@ async function fetchRssNewsOnly(): Promise<RawNewsItem[]> {
   );
 }
 
-const getCachedRssNews = unstable_cache(fetchRssNewsOnly, ["rss-news-v11"], {
+const getCachedRssNews = unstable_cache(fetchRssNewsOnly, ["rss-news-v12"], {
   revalidate: 900,
 });
 

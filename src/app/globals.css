@@ -280,3 +280,47 @@ mark {
   height: 1px;
   margin: 0 0 0.85rem;
 }
+
+.bbc-ai-chip {
+  border: 1px solid var(--bbc-border);
+  color: var(--bbc-gray);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+  min-height: 2.25rem;
+  padding: 0.45rem 0.7rem;
+  text-align: left;
+  transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+}
+
+.bbc-ai-chip:hover:not(:disabled) {
+  border-color: var(--bbc-black);
+  color: var(--bbc-black);
+  background: var(--bbc-bg-soft);
+}
+
+.bbc-ai-chip:disabled {
+  opacity: 0.5;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .bbc-ai-input,
+  .bbc-ai-button,
+  .bbc-ai-tab {
+    font-size: 15px;
+  }
+
+  .bbc-ai-panel {
+    margin-left: 0;
+    margin-right: 0;
+  }
+}

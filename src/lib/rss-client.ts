@@ -14,6 +14,7 @@ export interface RssItem {
   contentSnippet?: string;
   summary?: string;
   description?: string;
+  categories?: string[];
   enclosure?: { url?: string; type?: string };
   "media:content"?: { "@_url"?: string } | { "@_url"?: string }[];
 }
@@ -47,6 +48,20 @@ function readText(value: unknown): string | undefined {
   return undefined;
 }
 
+function readCategories(raw: Record<string, unknown>): string[] {
+  const value = raw.category;
+  if (value == null) return [];
+
+  const list = asArray(value as unknown);
+  return list
+    .map((entry) => {
+      if (typeof entry === "string") return entry;
+      return readText(entry) ?? "";
+    })
+    .map((tag) => tag.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+}
+
 function normalizeRssItem(raw: Record<string, unknown>): RssItem {
   const contentEncoded = readText(raw["content:encoded"]);
   const description = readText(raw.description);
@@ -73,6 +88,7 @@ function normalizeRssItem(raw: Record<string, unknown>): RssItem {
     contentSnippet: description || summary,
     summary,
     description,
+    categories: readCategories(raw),
     enclosure: enclosureRaw?.["@_url"]
       ? { url: enclosureRaw["@_url"], type: enclosureRaw["@_type"] }
       : undefined,
