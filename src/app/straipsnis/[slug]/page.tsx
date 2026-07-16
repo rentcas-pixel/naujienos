@@ -2,10 +2,17 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getArticleBySlug, findRelatedHeadlines } from "@/lib/news";
 import { prepareArticleForReading } from "@/lib/expand-article";
+import { getTopicAnglesForSlug } from "@/lib/topic-angles";
+import {
+  hasTopicAnglesPack,
+  isArticlePublishable,
+  isPublishSkipped,
+} from "@/lib/topic-angles-store";
 import { SiteHeader } from "@/components/SiteHeader";
 import { ArticlePageClient } from "@/components/ArticlePageClient";
 
 export const revalidate = 900;
+export const maxDuration = 60;
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -16,6 +23,100 @@ export default async function ArticlePage({ params }: PageProps) {
   const baseArticle = await getArticleBySlug(slug);
 
   if (!baseArticle) notFound();
+
+  const publishable = await isArticlePublishable(slug);
+  let topicAngles = null;
+
+  // Naujas straipsnis: kol nėra rakursų — nerodom turinio (nei antraštės)
+  if (!publishable) {
+    if (await isPublishSkipped(slug)) {
+      return (
+        <div className="min-h-screen bg-white">
+          <SiteHeader />
+          <main className="max-w-[720px] mx-auto px-4 py-24 text-center">
+            <p className="text-sm text-bbc-black font-medium">
+              Šios temos kol kas nepublikuojame
+            </p>
+            <p className="mt-2 text-sm text-bbc-gray max-w-md mx-auto">
+              Per mažai nepriklausomų šaltinių arba informacijos, kad būtų
+              solidus straipsnis — nerodome „tuščio“ AI teksto.
+            </p>
+            {baseArticle.originalUrl && (
+              <p className="mt-4">
+                <Link
+                  href={baseArticle.originalUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-bbc-red font-semibold hover:underline text-sm"
+                >
+                  Skaityti originalų šaltinį →
+                </Link>
+              </p>
+            )}
+            <p className="bbc-meta mt-6">
+              <Link href="/" className="text-bbc-red hover:underline">
+                ← Grįžti į naujienas
+              </Link>
+            </p>
+          </main>
+        </div>
+      );
+    }
+
+    topicAngles = await getTopicAnglesForSlug(slug);
+    if (!topicAngles || !(await hasTopicAnglesPack(slug))) {
+      const skippedAfterAttempt = await isPublishSkipped(slug);
+      return (
+        <div className="min-h-screen bg-white">
+          <SiteHeader />
+          <main className="max-w-[720px] mx-auto px-4 py-24 text-center">
+            {skippedAfterAttempt ? (
+              <>
+                <p className="text-sm text-bbc-black font-medium">
+                  Šios temos kol kas nepublikuojame
+                </p>
+                <p className="mt-2 text-sm text-bbc-gray max-w-md mx-auto">
+                  Surinkta per mažai šaltinių / info — straipsnis feed’e
+                  nepasirodys.
+                </p>
+                {baseArticle.originalUrl && (
+                  <p className="mt-4">
+                    <Link
+                      href={baseArticle.originalUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-bbc-red font-semibold hover:underline text-sm"
+                    >
+                      Skaityti originalų šaltinį →
+                    </Link>
+                  </p>
+                )}
+              </>
+            ) : (
+              <>
+                <div className="inline-block h-8 w-8 animate-spin rounded-full border-2 border-bbc-red border-r-transparent" />
+                <p className="mt-4 text-sm text-bbc-black font-medium">
+                  Straipsnis dar ruošiamas
+                </p>
+                <p className="mt-1 text-sm text-bbc-gray">
+                  Pasirodys feed’e tik jei AI ras kelis šaltinius ir pakankamai
+                  info.
+                </p>
+              </>
+            )}
+            <p className="bbc-meta mt-6">
+              <Link href="/" className="text-bbc-red hover:underline">
+                ← Grįžti į naujienas
+              </Link>
+            </p>
+          </main>
+        </div>
+      );
+    }
+  } else {
+    // Visada per getTopicAnglesForSlug — filtruoja straipsnio kartojimą / senus pack’us
+    topicAngles = await getTopicAnglesForSlug(slug);
+  }
 
   const article = await prepareArticleForReading(baseArticle);
 
@@ -112,11 +213,15 @@ export default async function ArticlePage({ params }: PageProps) {
         )}
 
         <p className="bbc-meta mb-8 pb-6 border-b border-bbc-border">
-          Pažymėkite tekstą — po juo atsiras AI juosta: Paaiškink · Sutrauk ·
-          Detaliau · Klausk…
+          Pažymėkite tekstą — desktop’e iš karto generuojamas „Detaliau“,
+          telefone — trumpa veiksmų juosta (Paaiškink · Sutrauk · Detaliau ·
+          Klausk…).
         </p>
 
-        <ArticlePageClient article={articleWithRelated} />
+        <ArticlePageClient
+          article={articleWithRelated}
+          topicAngles={topicAngles}
+        />
       </main>
     </div>
   );

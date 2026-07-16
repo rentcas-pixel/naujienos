@@ -469,6 +469,14 @@ export function ArticleView({ article, onAddSources }: ArticleViewProps) {
       return;
     }
 
+    // Desktop: iš karto AI blokas su „Detaliau“. Piliulė — tik mobile.
+    const isMobileUi = window.matchMedia("(max-width: 768px)").matches;
+    if (!isMobileUi) {
+      setPendingSelection(null);
+      void startAnnotationRef.current(text, paragraphIndex, "detail", offsets);
+      return;
+    }
+
     setActiveAnnotationId(null);
     setPendingSelection({ text, paragraphIndex, offsets });
   }, [article.paragraphs]);

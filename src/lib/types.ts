@@ -59,6 +59,40 @@ export interface ArticleBriefing {
   timeline: TimelineEvent[];
 }
 
+export type TopicAngleId = string;
+
+export interface TopicAngleSource {
+  outlet: string;
+  headline: string;
+  url: string;
+  note?: string;
+}
+
+export interface TopicAngleStat {
+  label: string;
+  value: string;
+}
+
+export interface TopicAngle {
+  id: TopicAngleId;
+  label: string;
+  lead: string;
+  paragraphs: string[];
+  facts: string[];
+  stats?: TopicAngleStat[];
+  timeline?: { when: string; what: string }[];
+  quote?: { text: string; who: string };
+  sources: TopicAngleSource[];
+}
+
+/** Blokas „Kitu kampu“ — dinaminės skiltys (1–3), pagal temą */
+export interface TopicAnglesPack {
+  angles: TopicAngle[];
+  generatedAt: string;
+  /** Trumpai: kodėl pasirinktos būtent šios skiltys */
+  readerQuestions?: string[];
+}
+
 export interface AlternativePerspective {
   outlet: string;
   headline: string;

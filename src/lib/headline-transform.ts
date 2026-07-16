@@ -72,12 +72,17 @@ function sanitizeHeadlineOutput(
   const outExcerpt = normalizeSpaces(output.excerpt);
   const sourceExcerpt = outExcerpt || excerpt;
 
+  const ungrounded =
+    titleUngroundedInExcerpt(title, sourceExcerpt) ||
+    titleUngroundedInExcerpt(title, excerpt);
+
   const strong =
     isStrongHeadline(title) &&
     !isClickbaitTitle(title) &&
-    !isLikelyEnglish(title);
+    !isLikelyEnglish(title) &&
+    !ungrounded;
 
-  const insufficientFlag = output.insufficientInfo === true;
+  const insufficientFlag = output.insufficientInfo === true || ungrounded;
 
   if (strong && !insufficientFlag) {
     return { title, excerpt: outExcerpt, insufficientInfo: false };
@@ -93,6 +98,7 @@ function sanitizeHeadlineOutput(
       (value) =>
         !isLikelyEnglish(value) &&
         !isClickbaitTitle(value) &&
+        !titleUngroundedInExcerpt(value, sourceExcerpt) &&
         isStrongHeadline(value)
     );
 
@@ -106,7 +112,10 @@ function sanitizeHeadlineOutput(
 
   const bestEffort = [fallback, fromExcerpt, heuristicDeclickbait(originalTitle)]
     .filter((value): value is string => Boolean(value))
-    .find((value) => !isLikelyEnglish(value));
+    .find(
+      (value) =>
+        !isLikelyEnglish(value) && !titleUngroundedInExcerpt(value, sourceExcerpt)
+    );
 
   return {
     title: bestEffort || heuristicDeclickbait(originalTitle),
@@ -144,6 +153,9 @@ const CLICKBAIT_PHRASES = [
   /everyone is talking/i,
   /shocking/i,
   /goes viral/i,
+  /ypatingai svarb(?:us|i)\s+signal/i,
+  /pažadas pildosi/i,
+  /štai kodėl/i,
 ];
 
 const CLICKBAIT_PREFIX =
@@ -186,6 +198,56 @@ export function isClickbaitTitle(title: string): boolean {
     const subtitle = colonParts.slice(1).join(" ").trim();
     if (WEAK_SUBTITLE.test(subtitle)) return true;
     if (/ką (?:svarbu|reikia) žinoti/i.test(subtitle)) return true;
+  }
+
+  return false;
+}
+
+/** Antraštėje yra teiginių, kurių nėra santraukoje (pvz. Trumpas / „signalas“). */
+export function titleUngroundedInExcerpt(title: string, excerpt: string): boolean {
+  const excerptNorm = normalizeSpaces(excerpt).toLowerCase();
+  if (excerptNorm.length < 20) return false;
+
+  const checks: RegExp[] = [
+    /\btrump\w*/i,
+    /\bpažad\w*/i,
+    /\bsignal\w*/i,
+    /\bbauden\w*/i,
+    /\brekord\w*/i,
+    /\bskandal\w*/i,
+  ];
+
+  for (const pattern of checks) {
+    if (pattern.test(title) && !pattern.test(excerptNorm)) return true;
+  }
+
+  // Žymūs vardai antraštėje (D. Trumpas, Zelenskis…) — jei nėra excerpt’e
+  const nameHits = title.match(
+    /\b(?:[A-ZĄČĘĖĮŠŲŪŽ]\.\s*)?[A-ZĄČĘĖĮŠŲŪŽ][a-ząčęėįšųūž]{3,}\b/g
+  );
+  if (!nameHits) return false;
+
+  const stop = new Set([
+    "Karas",
+    "Ukraina",
+    "Ukrainoje",
+    "Ukrainai",
+    "Rusija",
+    "Rusijos",
+    "Lietuva",
+    "Lietuvos",
+    "Pasaulis",
+    "Naujienos",
+    "Vyriausybė",
+    "Seime",
+    "Seimas",
+  ]);
+
+  for (const name of nameHits) {
+    if (stop.has(name)) continue;
+    const token = name.replace(/\./g, "").toLowerCase();
+    if (token.length < 4) continue;
+    if (!excerptNorm.includes(token)) return true;
   }
 
   return false;
@@ -283,6 +345,7 @@ function titleHash(title: string, excerpt: string): string {
 function needsEditorPass(item: HeadlineInput, titleAfterHeuristic: string): boolean {
   if (item.language === "en" || isLikelyEnglish(titleAfterHeuristic)) return true;
   if (isClickbaitTitle(item.title) || isClickbaitTitle(titleAfterHeuristic)) return true;
+  if (titleUngroundedInExcerpt(titleAfterHeuristic, item.excerpt)) return true;
   // Dvi dalys su dvitaškiu – dažnas clickbait formatas LT portaluose
   if (/[:–—]/.test(titleAfterHeuristic)) return true;
   return false;
@@ -451,16 +514,46 @@ const getCachedHeadlineBatch = unstable_cache(
     const map = await callHeadlineTransformBatch(items);
     return Object.fromEntries(map);
   },
-  ["headline-editor-v10"],
+  ["headline-editor-v11"],
   { revalidate: 604800 }
 );
 
+/** Viena antraštė — tas pats cache ir feed’ui, ir straipsnio puslapiui. */
+const getCachedHeadlineItem = unstable_cache(
+  async (_hash: string, payloadJson: string) => {
+    const item = JSON.parse(payloadJson) as HeadlineInput;
+    const map = await callHeadlineTransformBatch([{ ...item, id: "item" }]);
+    return map.get("item") ?? null;
+  },
+  ["headline-item-v11"],
+  { revalidate: 604800 }
+);
+
+async function resolveHeadlineItem(
+  item: HeadlineInput
+): Promise<HeadlineOutput | null> {
+  const hash = titleHash(item.title, item.excerpt);
+  return getCachedHeadlineItem(
+    hash,
+    JSON.stringify({
+      id: "item",
+      title: item.title,
+      excerpt: item.excerpt,
+      language: item.language,
+    })
+  );
+}
+
 function applyLocalHeadline<T extends HeadlineInput>(item: T): T {
   const title = fallbackHeadline(item.title, item.excerpt);
+  const grounded =
+    !titleUngroundedInExcerpt(title, item.excerpt) && isStrongHeadline(title);
   return {
     ...item,
-    title,
-    excerpt: isStrongHeadline(title)
+    title: grounded
+      ? title
+      : buildTitleFromExcerpt(item.excerpt) || title,
+    excerpt: grounded
       ? item.excerpt
       : withInsufficientMarker(item.excerpt),
   };
@@ -561,13 +654,17 @@ export async function editHeadlinesForDisplay<T extends HeadlineInput>(
 
   const editPromise = (async () => {
     const map = new Map<string, HeadlineOutput>();
-    for (let i = 0; i < priority.length; i += MAX_AI_BATCH) {
-      const chunk = priority.slice(i, i + MAX_AI_BATCH);
-      const chunkResults = await editHeadlineChunk(chunk);
-      for (const [id, output] of chunkResults) {
-        map.set(id, output);
-      }
-    }
+    await Promise.all(
+      priority.map(async (item) => {
+        const output = await resolveHeadlineItem({
+          id: item.id,
+          title: item.title,
+          excerpt: item.excerpt,
+          language: item.language,
+        });
+        if (output?.title) map.set(item.id, output);
+      })
+    );
     return map;
   })();
 
@@ -582,7 +679,14 @@ export async function editHeadlinesForDisplay<T extends HeadlineInput>(
         excerpt: ai.excerpt || item.excerpt,
       };
     }
-    return applyLocalHeadline(item);
+    // Jei AI nespėjo / nėra — vis tiek neleidžiam ungrounded clickbait
+    if (
+      titleUngroundedInExcerpt(item.title, item.excerpt) ||
+      isClickbaitTitle(item.title)
+    ) {
+      return applyLocalHeadline(item);
+    }
+    return isStrongHeadline(item.title) ? item : applyLocalHeadline(item);
   });
 }
 

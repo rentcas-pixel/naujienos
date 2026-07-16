@@ -1,6 +1,12 @@
+import { after } from "next/server";
+import { revalidatePath } from "next/cache";
 import { SiteHeader } from "@/components/SiteHeader";
 import { NewsHome } from "@/components/NewsHome";
-import { getLatestNews, getHomepageWithSections } from "@/lib/news";
+import {
+  getLatestNewsWithPending,
+  getHomepageWithSections,
+} from "@/lib/news";
+import { warmTopicAnglesForSlugs } from "@/lib/topic-angles";
 import { paramToCategory, paramToNavTab } from "@/lib/rss-feeds";
 
 export const revalidate = 900;
@@ -9,14 +15,30 @@ interface HomeProps {
   searchParams: Promise<{ kategorija?: string }>;
 }
 
+function scheduleTopicAngleWarm(pendingSlugs: string[]) {
+  if (pendingSlugs.length === 0) return;
+  after(async () => {
+    await warmTopicAnglesForSlugs(pendingSlugs, 5);
+    revalidatePath("/");
+  });
+}
+
 export default async function Home({ searchParams }: HomeProps) {
   const { kategorija } = await searchParams;
   const category = paramToCategory(kategorija);
   const pageTitle = paramToNavTab(kategorija);
 
   if (!category) {
-    const { todayNews, displayNews, categorySections, trendingLabels } =
-      await getHomepageWithSections();
+    const {
+      todayNews,
+      displayNews,
+      categorySections,
+      pendingSlugs,
+    } = await getHomepageWithSections();
+
+    if (pendingSlugs.length > 0) {
+      scheduleTopicAngleWarm(pendingSlugs);
+    }
 
     return (
       <div className="min-h-screen bg-white">
@@ -34,7 +56,6 @@ export default async function Home({ searchParams }: HomeProps) {
             pageTitle={pageTitle}
             showCategorySections
             categorySections={categorySections}
-            trendingLabels={trendingLabels}
           />
         </main>
 
@@ -50,14 +71,18 @@ export default async function Home({ searchParams }: HomeProps) {
     );
   }
 
-  const news = await getLatestNews({
+  const { items: news, pendingSlugs } = await getLatestNewsWithPending({
     category,
     todayOnly: true,
     limit: 40,
   });
 
   const displayNews =
-    news.length >= 8 ? news : await getLatestNews({ category, limit: 40 });
+    news.length >= 8
+      ? news
+      : (await getLatestNewsWithPending({ category, limit: 40 })).items;
+
+  scheduleTopicAngleWarm(pendingSlugs);
 
   return (
     <div className="min-h-screen bg-white">

@@ -105,7 +105,7 @@ const getCachedExpandedArticle = unstable_cache(
     if (!article || !isShortRssArticle(article)) return null;
     return expandArticleContent(article);
   },
-  ["expand-rss-article-v5"],
+  ["expand-rss-article-v6"],
   { revalidate: 86400 }
 );
 

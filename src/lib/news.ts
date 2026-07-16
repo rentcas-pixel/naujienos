@@ -7,6 +7,7 @@ import {
   resolveNewsCategory,
 } from "./news-category";
 import { getTrendingSnapshot, rankByTrending } from "./trending";
+import { resolvePublishableSlugs } from "./topic-angles-store";
 import { fetchRssFeed, type RssItem } from "./rss-client";
 import {
   estimateReadingTime,
@@ -21,7 +22,6 @@ import { isPromotionalContent } from "./promotional-content";
 import {
   heuristicDeclickbait,
   editHeadlinesForDisplay,
-  translateSingleEnHeadline,
   applyEnExcerptToParagraphs,
 } from "./headline-transform";
 
@@ -239,7 +239,7 @@ async function fetchRssNewsOnly(): Promise<RawNewsItem[]> {
   );
 }
 
-const getCachedRssNews = unstable_cache(fetchRssNewsOnly, ["rss-news-v12"], {
+const getCachedRssNews = unstable_cache(fetchRssNewsOnly, ["rss-news-v13"], {
   revalidate: 900,
 });
 
@@ -381,6 +381,16 @@ export async function getLatestNews(options?: {
   todayOnly?: boolean;
   limit?: number;
 }): Promise<NewsListItem[]> {
+  const result = await getLatestNewsWithPending(options);
+  return result.items;
+}
+
+export async function getLatestNewsWithPending(options?: {
+  sourceId?: string;
+  category?: string;
+  todayOnly?: boolean;
+  limit?: number;
+}): Promise<{ items: NewsListItem[]; pendingSlugs: string[] }> {
   const raw = await getCachedRssNews();
 
   let filtered = filterRawOnly(raw, {
@@ -390,21 +400,24 @@ export async function getLatestNews(options?: {
     limit: Math.max(options?.limit ?? 80, 80),
   });
 
+  const { publishable, pending } = await resolvePublishableSlugs(
+    filtered.map((item) => item.slug)
+  );
+  filtered = filtered.filter((item) => publishable.has(item.slug));
+
   filtered = await editRawItems(filtered, { budgetMs: 4000, maxItems: 16 });
 
-  return toRankedListItems(filtered, options?.limit ?? 80);
+  const items = await toRankedListItems(filtered, options?.limit ?? 80);
+  return { items, pendingSlugs: pending };
 }
 
 export async function getHomepageWithSections(): Promise<{
   todayNews: NewsListItem[];
   displayNews: NewsListItem[];
   categorySections: Array<{ category: NewsCategory; items: NewsListItem[] }>;
-  trendingLabels: string[];
+  pendingSlugs: string[];
 }> {
-  const [raw, snapshot] = await Promise.all([
-    getCachedRssNews(),
-    getTrendingSnapshot(),
-  ]);
+  const raw = await getCachedRssNews();
 
   const todayItems = filterRawOnly(raw, { todayOnly: true, limit: 60 });
   const displayPool =
@@ -413,11 +426,22 @@ export async function getHomepageWithSections(): Promise<{
     filterRawOnly(raw, { category: cat, limit: 8 })
   );
 
+  const candidateSlugs = [
+    ...new Set(
+      [...displayPool, ...sectionItems, ...raw.slice(0, 40)].map((item) => item.slug)
+    ),
+  ];
+  const { publishable, pending } = await resolvePublishableSlugs(candidateSlugs);
+
+  const publishableRaw = raw.filter((item) => publishable.has(item.slug));
+
   const slugSet = new Set(
-    [...displayPool, ...sectionItems].map((item) => item.slug)
+    [...displayPool, ...sectionItems]
+      .filter((item) => publishable.has(item.slug))
+      .map((item) => item.slug)
   );
-  const toEdit = raw.filter((item) => slugSet.has(item.slug));
-  const enriched = await enrichRawWithEditedHeadlines(raw, toEdit, {
+  const toEdit = publishableRaw.filter((item) => slugSet.has(item.slug));
+  const enriched = await enrichRawWithEditedHeadlines(publishableRaw, toEdit, {
     budgetMs: 3500,
     maxItems: 12,
   });
@@ -443,9 +467,12 @@ export async function getHomepageWithSections(): Promise<{
     )
   ).filter((section) => section.items.length > 0);
 
-  const trendingLabels = snapshot.topics.slice(0, 6).map((topic) => topic.label);
-
-  return { todayNews, displayNews, categorySections, trendingLabels };
+  return {
+    todayNews,
+    displayNews,
+    categorySections,
+    pendingSlugs: pending,
+  };
 }
 
 export async function getNewsArticleBySlug(
@@ -455,18 +482,12 @@ export async function getNewsArticleBySlug(
   let item = raw.find((n) => n.slug === slug);
   if (!item) return undefined;
 
-  const edited = await translateSingleEnHeadline(
-    item.title,
-    item.excerpt,
-    item.language
-  );
-  if (edited) {
-    item = applyEnExcerptToParagraphs({
-      ...item,
-      title: edited.title,
-      excerpt: edited.excerpt || item.excerpt,
-    });
-  }
+  // Tas pats antraščių kelias kaip feed’e — kad H1 sutaptų su sąrašu
+  const [edited] = await editRawItems([item], {
+    budgetMs: 10000,
+    maxItems: 1,
+  });
+  if (edited) item = edited;
 
   return rawToArticle(item);
 }

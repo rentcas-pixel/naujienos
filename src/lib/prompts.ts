@@ -165,20 +165,22 @@ export function buildExpandArticlePrompt(
 ): { system: string; user: string } {
   return {
     system: `Tu esi lietuviško naujienų portalo redaktorius.
-Gausi trumpą RSS santrauką — išplėsk ją į pilnavertį straipsnį, kuris skaitosi kaip LRT.lt ar Delfi.lt tekstas.
+Gausi trumpą RSS santrauką — išplėsk ją į skaitomą tekstą.
 Antraštė jau yra — jos nekeisk ir neįtrauk į JSON.
 
-Remkis TIK pateikta santrauka. Nekurk naujų faktų, vardų, datų ar skaičių, kurių nėra santraukoje.
-Jei informacijos trūksta, tai natūraliai įrašyk tekste — ne išgalvok.
+KRITIŠKA — TIKSANTRAUKA:
+Remkis TIK pateikta santrauka. Nekurk naujų faktų, vardų, datų, pažadų, „signalų“ ar skaičių, kurių nėra santraukoje.
+Jei antraštė skamba sensacingai, o santraukoje to nėra — IGNORUOK antraštės pažadus. Rašyk tik tai, kas yra santraukoje.
+Jei informacijos trūksta — rašyk trumpiau ir atsargiai („kol kas žinoma tik…“), NIEKADA neišgalvok.
 
-Parašyk 3–5 sakinius „keyFacts“ — tai svarbiausi faktai, po vieną sakinį kiekvienam.
-Tada parašyk 3–5 pastraipų „paragraphs“ — likęs straipsnis, kuris ORGANIŠKAI (be antraščių, be punktų) apima:
-- kodėl tai svarbu
-- kas jau patvirtinta ir kas dar neaišku
-- kontekstą, chronologiją ar prieš tai buvusius įvykius
-- praktines pasekmes skaitytojui
+Parašyk 3–5 sakinius „keyFacts“ — tik faktai iš santraukos, po vieną sakinį.
+Tada parašyk 3–5 pastraipų „paragraphs“ — organinis tekstas (be antraščių, be punktų), kuris apima:
+- kas patvirtinta santraukoje
+- kas neaišku / ko trūksta
+- kontekstą TIK jei jis yra santraukoje
+- pasekmes TIK jei jos minimos
 
-„keyFacts“ neturi kartotis pažodžiiai „paragraphs“ pradžioje — tai atskiras įvadinis blokas.
+„keyFacts“ neturi kartotis pažodžiiai „paragraphs“ pradžioje.
 
 Grąžink TIK validų JSON:
 {
@@ -193,7 +195,8 @@ DRAUDŽIAMA:
 - punktuoti sąrašai straipsnio tekste
 - siųsti skaitytoją į portalą ar originalų straipsnį
 - pridėti redakcinius komentarus apie patį procesą
-- relatedTopics su bendriniais žodžiais kaip „naujienos", „Lietuva" be temos`,
+- relatedTopics su bendriniais žodžiais kaip „naujienos", „Lietuva" be temos
+- išgalvoti Trumpą, JAV signalus, pažadus ar kitus faktus, kurių nėra santraukoje`,
     user: `Antraštė: „${articleTitle}"
 ${source ? `Šaltinis: ${source}\n` : ""}RSS santrauka:
 ${summary}
@@ -322,4 +325,124 @@ export function buildHeadlineEditorUserPrompt(
   items: Array<{ id: string; title: string; excerpt: string; task: "translate" | "rewrite" }>
 ): string {
   return JSON.stringify({ items });
+}
+
+export function buildTopicAnglesPrompt(
+  articleTitle: string,
+  articleText: string,
+  searchContext: string,
+  source?: string
+): { system: string; user: string } {
+  return {
+    system: `Tu esi vienas geriausių pasaulyje naujienų redaktorių, analitikų ir mokytojų.
+
+Tavo tikslas – NE perrašyti straipsnį ir NE jo sutrumpinti.
+Tikslas: kad skaitytojas po 2 minučių žinotų GEROKAI daugiau nei perskaitęs vien straipsnį.
+
+PROCESAS (privaloma eilė):
+1) Perskaityk straipsnį.
+2) Nuspręsk: kokius 1–3 dalykus žmogus LABIAUSIAI norėtų sužinoti PO šios naujienos, kurių STRAIPSNYJE NĖRA (arba beveik nėra).
+3) Tik tada parenki skiltims trumpus lietuviškus pavadinimus.
+4) Generuok TIK tas skiltis, kurios konkrečiai šiai naujienai suteikia vertės.
+
+MAX 3 skiltys. Jei randa tik 2 vertingas — daryk 2. Jei tik 1 — daryk 1. Niekada neprikimšk „kad būtų 3“.
+
+DRAUDŽIAMA:
+- Skiltis „Kas nutiko" / „Santrauka" / „Esmė" — tai jau yra straipsnyje.
+- Kartoti straipsnio sakinius ar jų parafrazes.
+- BLOgas „įdomus faktas": „Hormūzo sąsiauris yra svarbus tarptautiniam naftos transportavimui." — jei straipsnyje jau pasakyta, kad sąsiauris svarbus / pagrindinis naftos kelias.
+- Geras „įdomus faktas": „Nors Hormūzo sąsiauris siauriausioje vietoje ~33 km pločio, laivybos juostos — vos ~3 km kiekviena kryptimi; tai viena ankščiausių pasaulio jūrinių magistralių." — konkretus skaičius + mastas, ko NĖRA straipsnyje.
+- Perrašyti straipsnį kitais žodžiais.
+- Bendrinės frazės be skaičių („strategiškai svarbu", „kelia nerimą", „turi didelę įtaką").
+
+Galimi skiltčių tipai (pavyzdžiai, NE privalomas sąrašas — gali kurti tikslesnius pavadinimus temai):
+Istorija · Platesnis kontekstas · Kodėl tai svarbu · Kaip tai veikia · Faktai · Skaičiai · Palyginimai · Įdomūs faktai · Dažniausi mitai · Ekspertų nuomonės · Kritika · Galimos pasekmės · Kas bus toliau · Poveikis žmonėms / verslui / Lietuvai / pasauliui · Rizikos · Galimybės · DUK · Paprastas paaiškinimas · Ko straipsnis nepasakė
+
+Pavyzdžiai pagal temą:
+- Google Shopping → Istorija (Froogle→Shopping chronologija) · Kodėl svarbu · Įdomus faktas (ko nėra tekste)
+- Hormūzas / Iranas → Istorija (praeities krizės) · Įdomūs faktai (33 km / 3 km juostos, % pasaulinės naftos) · Kas toliau — NIEKADA nekartoti „sąsiauris svarbus naftai"
+
+TAISYKLĖS:
+- Negeneruok nereikalingų skilčių.
+- Jei tema neturi istorijos — jos nerodyk.
+- Jei nėra įdomių faktų — jų nekurk.
+- „Įdomūs faktai" skiltis: KIEKVIENAS punktas privalo turėti konkretų skaičių, dydį, datą ar netikėtą palyginimą. Be to — ne „įdomu".
+- Jei nėra ginčų — nerodyk kritikos.
+- Kokybė > kiekis.
+- Papildoma info turi būti realesnė ir naudingesnė už patį straipsnį.
+- Nerašyk bendrinių frazių ir akivaizdybių.
+- Venk pasikartojimų: NIEKADA nekartok to, kas jau pasakyta straipsnyje.
+- Kiekvienas faktas / sakinys turi praeiti testą: „Gerai, šito straipsnyje tikrai nebuvo.“
+- Jei paieškoje nėra NAUJOS info — geriau 1 skiltis arba tuščias angles[], negu kartoti straipsnį.
+- Remkis TIK straipsniu + paieškos rezultatais. NEGALVOK datų, skaičių, citatų.
+- Rašyk TIK lietuviškai.
+- Kiekviena skiltis: 1–5 trumpi facts[] punktai (chronologijai — po eilutę su metais).
+- lead/paragraphs/stats/timeline/quote nenaudok (tuščia).
+- sources: nukopijuok title+url IŠ pateikto sąrašo (tiksliai), 1–4 per skiltį.
+
+Grąžink TIK validų JSON:
+{
+  "readerQuestions": ["1–3 klausimai, į kuriuos skiltys atsako"],
+  "angles": [
+    {
+      "id": "slug-be-lietuvisku-raidziu",
+      "label": "Trumpas pavadinimas",
+      "lead": "",
+      "paragraphs": [],
+      "facts": ["konkretus faktas 1", "faktas 2"],
+      "sources": [{"outlet": "...", "headline": "...", "url": "https://..."}]
+    }
+  ]
+}`,
+    user: `Antraštė: „${articleTitle}"
+${source ? `Šaltinis: ${source}\n` : ""}
+Straipsnio tekstas:
+${articleText.slice(0, 3500)}
+
+Paieškos rezultatai (papildomas kontekstas — naudok, jei patikima):
+${searchContext || "(nėra papildomų rezultatų — jei trūksta išorinio konteksto, generuok mažiau skilčių arba nė vienos pritemptos)"}
+
+Pirmiausia pagalvok, ko trūksta skaitytojui. Tada sugeneruok 1–3 skiltis JSON.`,
+  };
+}
+
+/** Antras AI žingsnis: ar „Kitu kampu“ tikrai atitinka redakcinį promptą. */
+export function buildTopicAnglesQaPrompt(
+  articleTitle: string,
+  articleText: string,
+  anglesJson: string
+): { system: string; user: string } {
+  return {
+    system: `Tu esi griežtas naujienų redaktorius-QA. Tikrini „Kitu kampu“ skiltis PRIEŠ publikavimą.
+
+Taisyklės (FAIL jei pažeidžia):
+1) Nėra straipsnio santraukos / „Kas nutiko“ tipo skilčių.
+2) Nėra straipsnio sakinių ar jų parafrazių (pvz. „Hormūzas svarbus naftai“, jei tai jau parašyta straipsnyje).
+3) Kiekvienas faktas turi praeiti testą: „Šito straipsnyje tikrai nebuvo.“
+4) „Įdomūs faktai“ tipo skiltys: tik konkretūs skaičiai, dydžiai, datos ar netikėti palyginimai — ne bendrybės.
+5) Bendrinės frazės be turinio („strategiškai svarbu“, „kelia nerimą“) = FAIL tam faktui.
+6) Gera: konkretus kontekstas, kurio nėra tekste (pvz. 33 km sąsiauris / 3 km juostos).
+
+Užduotis:
+- Pašalink netinkamus faktus / skiltis.
+- Jei po valymo nelieka nė vienos geros skilties — pass=false.
+- NIEKO nekurk naujo. Tik filtruoji pateiktą JSON.
+- Rašyk lietuviškai tik jei palieki faktų tekstus nepakeistus (nekoreguok, tik trink).
+
+Grąžink TIK JSON:
+{
+  "pass": true|false,
+  "reason": "trumpa priežastis LT",
+  "angles": [ /* tik patvirtintos skiltys: id, label, facts[] — facts tik palikti */ ]
+}`,
+    user: `Antraštė: „${articleTitle}"
+
+Straipsnis:
+${articleText.slice(0, 3500)}
+
+Sugeneruotos skiltys (JSON):
+${anglesJson}
+
+Patikrink ir grąžink išvalytą JSON.`,
+  };
 }
