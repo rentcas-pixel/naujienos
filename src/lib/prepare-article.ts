@@ -13,6 +13,9 @@ import {
   getPublishSkipReason,
 } from "./topic-angles-store";
 
+/** Minimali straipsnio apimtis po paruošimo */
+const MIN_ARTICLE_CHARS = 280;
+
 function excerptFromArticle(article: Article): string {
   return article.paragraphs
     .map((p) => p.text)
@@ -22,13 +25,21 @@ function excerptFromArticle(article: Article): string {
     .slice(0, 280);
 }
 
-function emptyPack(): TopicAnglesPack {
-  return { angles: [], generatedAt: new Date().toISOString() };
+function articleBodyChars(article: Article): number {
+  return article.paragraphs
+    .map((p) => p.text)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim().length;
+}
+
+function hasQualityPack(pack: TopicAnglesPack | null | undefined): boolean {
+  return Boolean(pack?.angles?.some((angle) => angle.facts?.length > 0));
 }
 
 /**
- * RSS → antraštė → tekstas → (Kitu kampu jei pavyksta) → feed.
- * Jei rakursai nepavyksta — vis tiek publikuojam straipsnį be „Kitu kampu“.
+ * Kokybė > kiekis.
+ * Į feed’ą TIK jei yra normalus straipsnis IR normalus „Kitu kampu“.
  */
 export async function prepareArticleForPublish(
   slug: string
@@ -39,7 +50,10 @@ export async function prepareArticleForPublish(
   if (!slug) return null;
 
   const existing = await readPreparedPublish(slug);
-  if (existing?.article?.paragraphs?.length) {
+  if (
+    existing?.article?.paragraphs?.length &&
+    hasQualityPack(existing.pack)
+  ) {
     return { article: existing.article, pack: existing.pack };
   }
 
@@ -76,19 +90,26 @@ export async function prepareArticleForPublish(
     article = await expandArticleContent(article);
   }
 
-  // Rakursai — best effort (neblouoja publish)
-  const pack =
-    (await generateTopicAnglesPackForArticle(article, {
-      markSkipped: false,
-    })) ?? emptyPack();
+  if (articleBodyChars(article) < MIN_ARTICLE_CHARS) {
+    await markPublishSkipped(slug, "thin");
+    return null;
+  }
+
+  // Be kokybiško „Kitu kampu“ — NEpublikuojam
+  const pack = await generateTopicAnglesPackForArticle(article, {
+    markSkipped: true,
+  });
+  if (!hasQualityPack(pack)) {
+    return null;
+  }
 
   await writePreparedPublish({
     slug,
     title: article.title,
     excerpt: excerptFromArticle(article),
     article,
-    pack,
+    pack: pack!,
   });
 
-  return { article, pack };
+  return { article, pack: pack! };
 }

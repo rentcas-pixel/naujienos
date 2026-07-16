@@ -67,13 +67,21 @@ function deserializeArticle(
   };
 }
 
+function hasQualityPack(pack: TopicAnglesPack | null | undefined): boolean {
+  return Boolean(pack?.angles?.some((angle) => angle.facts?.length > 0));
+}
+
 function isFullReady(row: {
   status?: string;
   pack?: TopicAnglesPack | null;
   article?: Article | null;
 }): boolean {
-  // Feed’ui užtenka paruošto straipsnio; „Kitu kampu“ optional
-  return row.status === "ready" && Boolean(row.article?.paragraphs?.length);
+  // Kokybė > kiekis: reikia ir straipsnio, ir „Kitu kampu“
+  return (
+    row.status === "ready" &&
+    Boolean(row.article?.paragraphs?.length) &&
+    hasQualityPack(row.pack)
+  );
 }
 
 function dataRoot(): string {
@@ -176,15 +184,15 @@ async function fsWritePrepared(record: PreparedPublish): Promise<void> {
 
 async function fsReadPrepared(slug: string): Promise<PreparedPublish | null> {
   const payload = await fsReadPayload(slug);
-  if (!payload?.pack?.angles?.length) return null;
-  const article = deserializeArticle(payload.article ?? null);
-  if (!article) return null;
+  if (!hasQualityPack(payload?.pack)) return null;
+  const article = deserializeArticle(payload?.article ?? null);
+  if (!article?.paragraphs?.length) return null;
   return {
     slug,
-    title: payload.title || article.title,
-    excerpt: payload.excerpt || "",
+    title: payload!.title || article.title,
+    excerpt: payload!.excerpt || "",
     article,
-    pack: payload.pack,
+    pack: payload!.pack!,
   };
 }
 
