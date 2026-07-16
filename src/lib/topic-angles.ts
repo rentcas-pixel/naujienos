@@ -515,16 +515,23 @@ async function qaTopicAnglesPack(
 
 /** Eksportuota prepare pipeline’ui (be disko write). */
 export async function generateTopicAnglesPackForArticle(
-  article: Article
+  article: Article,
+  options?: { markSkipped?: boolean }
 ): Promise<TopicAnglesPack | null> {
-  return generateTopicAnglesPack(article);
+  return generateTopicAnglesPack(article, options);
 }
 
 async function generateTopicAnglesPack(
-  article: Article
+  article: Article,
+  options?: { markSkipped?: boolean }
 ): Promise<TopicAnglesPack | null> {
+  const markSkipped = options?.markSkipped !== false;
+  const skip = async (reason: Parameters<typeof markPublishSkipped>[1]) => {
+    if (markSkipped) await markPublishSkipped(article.slug, reason);
+  };
+
   if (article.isPromotional) {
-    await markPublishSkipped(article.slug, "promotional");
+    await skip("promotional");
     return null;
   }
   if (!process.env.OPENAI_API_KEY) return null;
@@ -536,7 +543,7 @@ async function generateTopicAnglesPack(
 
   const quality = assessPublishQuality(article, searchResults);
   if (!quality.ok) {
-    await markPublishSkipped(article.slug, quality.reason);
+    await skip(quality.reason);
     return null;
   }
 
@@ -544,7 +551,7 @@ async function generateTopicAnglesPack(
   const searchContext = formatResults(searchResults);
   const raw = await callOpenAITopicAngles(article, searchContext);
   if (!raw) {
-    await markPublishSkipped(article.slug, "generation_failed");
+    await skip("generation_failed");
     return null;
   }
 
@@ -554,9 +561,8 @@ async function generateTopicAnglesPack(
     `${article.title}\n${articleText}`
   );
 
-  // 1–3 skiltys OK; 0 po novelty filtro — fail (nepublikuojam kartojimo)
   if (angles.length < 1) {
-    await markPublishSkipped(article.slug, "thin");
+    await skip("thin");
     return null;
   }
 
@@ -573,10 +579,9 @@ async function generateTopicAnglesPack(
     }
   }
 
-  // 4) AI QA — ar atitinka redakcinį promptą (be straipsnio kartojimo)
   const qa = await qaTopicAnglesPack(article, angles);
   if (!qa.ok) {
-    await markPublishSkipped(article.slug, "qa_failed");
+    await skip("qa_failed");
     return null;
   }
 
@@ -588,7 +593,7 @@ async function generateTopicAnglesPack(
   };
 
   if (!packHasEnoughSources(pack)) {
-    await markPublishSkipped(article.slug, "no_sources");
+    await skip("no_sources");
     return null;
   }
 
@@ -617,7 +622,7 @@ export async function warmTopicAnglesForSlugs(
   slugs: string[],
   limit = 5
 ): Promise<void> {
-  const { readPreparedPublish, isPublishSkipped } = await import(
+  const { readPreparedPublish, getPublishSkipReason } = await import(
     "./topic-angles-store"
   );
   const { prepareArticleForPublish } = await import("./prepare-article");
@@ -625,10 +630,10 @@ export async function warmTopicAnglesForSlugs(
   for (const slug of unique) {
     try {
       if (await readPreparedPublish(slug)) continue;
-      if (await isPublishSkipped(slug)) continue;
+      if ((await getPublishSkipReason(slug)) === "promotional") continue;
       await prepareArticleForPublish(slug);
-    } catch {
-      // Kitą ciklą bandysim iš naujo
+    } catch (err) {
+      console.error("[warm] prepare failed", slug, err);
     }
   }
 }

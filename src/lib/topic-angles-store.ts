@@ -72,11 +72,8 @@ function isFullReady(row: {
   pack?: TopicAnglesPack | null;
   article?: Article | null;
 }): boolean {
-  return (
-    row.status === "ready" &&
-    Boolean(row.pack?.angles?.length) &&
-    Boolean(row.article?.paragraphs?.length)
-  );
+  // Feed’ui užtenka paruošto straipsnio; „Kitu kampu“ optional
+  return row.status === "ready" && Boolean(row.article?.paragraphs?.length);
 }
 
 function dataRoot(): string {
@@ -281,12 +278,15 @@ async function sbWriteGate(state: ArticleGateState): Promise<void> {
   const sb = getSupabaseAdmin();
   if (!sb) return;
 
-  await sb.from("publish_gate").upsert({
+  const { error } = await sb.from("publish_gate").upsert({
     id: 1,
     initialized: state.initialized,
     legacy_slugs: state.legacySlugs,
     updated_at: new Date().toISOString(),
   });
+  if (error) {
+    console.error("[topic-angles] publish_gate write failed", error.message);
+  }
 }
 
 async function sbFetchRows(slugs: string[]): Promise<Map<string, PackRow>> {
@@ -333,52 +333,93 @@ export async function readPreparedPublish(
     if (!sb) return null;
     const { data } = await sb
       .from("topic_angle_packs")
-      .select("slug, status, pack, article, title, excerpt")
+      .select("slug, status, pack, path, article, title, excerpt")
       .eq("slug", slug)
       .eq("status", "ready")
       .maybeSingle();
     if (!data) return null;
-    const pack = data.pack as TopicAnglesPack | null;
+    let pack = data.pack as TopicAnglesPack | null;
+    if (!pack?.angles && typeof (data as { path?: string }).path === "string") {
+      try {
+        pack = JSON.parse((data as { path: string }).path) as TopicAnglesPack;
+      } catch {
+        pack = null;
+      }
+    }
     const article = deserializeArticle(
       (data.article as Article | null) ?? null
     );
-    if (!isFullReady({ status: data.status as string, pack, article })) {
-      return null;
+    if (isFullReady({ status: data.status as string, pack, article })) {
+      return {
+        slug,
+        title: (data.title as string) || article!.title,
+        excerpt: (data.excerpt as string) || "",
+        article: article!,
+        pack: pack ?? { angles: [], generatedAt: new Date().toISOString() },
+      };
     }
-    return {
-      slug,
-      title: (data.title as string) || article!.title,
-      excerpt: (data.excerpt as string) || "",
-      article: article!,
-      pack: pack!,
-    };
+    // Supabase row incomplete — try local FS
+    if (!process.env.VERCEL) {
+      return fsReadPrepared(slug);
+    }
+    return null;
   }
 
   return fsReadPrepared(slug);
+}
+
+async function sbUpsertPrepared(record: PreparedPublish): Promise<void> {
+  const sb = getSupabaseAdmin();
+  if (!sb) throw new Error("Supabase not configured");
+
+  const base = {
+    slug: record.slug,
+    status: "ready" as const,
+    article: serializeArticle(record.article),
+    title: record.title,
+    excerpt: record.excerpt,
+    skip_reason: null,
+    generated_at: record.pack.generatedAt || new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  // 1) Teisinga schema: pack jsonb
+  let { error } = await sb.from("topic_angle_packs").upsert({
+    ...base,
+    pack: record.pack,
+  });
+
+  // 2) Sena / n8n schema: stulpelis "path" vietoj "pack"
+  if (error && /pack|column/i.test(error.message)) {
+    console.warn(
+      "[topic-angles] pack column missing, writing pack JSON into path",
+      error.message
+    );
+    ({ error } = await sb.from("topic_angle_packs").upsert({
+      ...base,
+      path: JSON.stringify(record.pack),
+    }));
+  }
+
+  if (error) {
+    console.error("[topic-angles] writePreparedPublish failed", error.message);
+    throw new Error(`Supabase write failed: ${error.message}`);
+  }
 }
 
 export async function writePreparedPublish(
   record: PreparedPublish
 ): Promise<void> {
   if (useSupabase()) {
-    const sb = getSupabaseAdmin();
-    if (!sb) {
-      throw new Error("Supabase not configured");
+    try {
+      await sbUpsertPrepared(record);
+    } catch (err) {
+      await fsWritePrepared(record);
+      if (process.env.VERCEL) throw err;
+      return;
     }
-    const { error } = await sb.from("topic_angle_packs").upsert({
-      slug: record.slug,
-      status: "ready",
-      pack: record.pack,
-      article: serializeArticle(record.article),
-      title: record.title,
-      excerpt: record.excerpt,
-      skip_reason: null,
-      generated_at: record.pack.generatedAt || new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    });
-    if (error) {
-      console.error("[topic-angles] writePreparedPublish failed", error.message);
-      throw new Error(`Supabase write failed: ${error.message}`);
+    if (!process.env.VERCEL) {
+      await fsWritePrepared(record);
     }
     return;
   }
@@ -570,8 +611,11 @@ export async function resolvePublishableSlugs(currentSlugs: string[]): Promise<{
         continue;
       }
       if (row?.status === "skipped") {
-        skipped.push(slug);
-        continue;
+        // Tik promotional lieka skipped; kita — bandome prepare iš naujo
+        if (row.skip_reason === "promotional") {
+          skipped.push(slug);
+          continue;
+        }
       }
       pending.push(slug);
     }

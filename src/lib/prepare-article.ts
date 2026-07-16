@@ -10,7 +10,7 @@ import {
   markPublishSkipped,
   readPreparedPublish,
   writePreparedPublish,
-  isPublishSkipped,
+  getPublishSkipReason,
 } from "./topic-angles-store";
 
 function excerptFromArticle(article: Article): string {
@@ -22,10 +22,13 @@ function excerptFromArticle(article: Article): string {
     .slice(0, 280);
 }
 
+function emptyPack(): TopicAnglesPack {
+  return { angles: [], generatedAt: new Date().toISOString() };
+}
+
 /**
- * Pilnas publish pipeline:
- * RSS → antraštė → tekstas → Kitu kampu + QA → įrašas DB.
- * Tik tada feed’e (status=ready).
+ * RSS → antraštė → tekstas → (Kitu kampu jei pavyksta) → feed.
+ * Jei rakursai nepavyksta — vis tiek publikuojam straipsnį be „Kitu kampu“.
  */
 export async function prepareArticleForPublish(
   slug: string
@@ -36,11 +39,12 @@ export async function prepareArticleForPublish(
   if (!slug) return null;
 
   const existing = await readPreparedPublish(slug);
-  if (existing?.article && existing.pack?.angles?.length) {
+  if (existing?.article?.paragraphs?.length) {
     return { article: existing.article, pack: existing.pack };
   }
 
-  if (await isPublishSkipped(slug)) return null;
+  const skipReason = await getPublishSkipReason(slug);
+  if (skipReason === "promotional") return null;
 
   const base = await getArticleBySlug(slug);
   if (!base) return null;
@@ -52,7 +56,6 @@ export async function prepareArticleForPublish(
 
   const seedExcerpt = excerptFromArticle(base);
 
-  // 1) Antraštė (tas pats editorius kaip feed’e)
   const [edited] = await editHeadlinesForDisplay(
     [
       {
@@ -69,16 +72,16 @@ export async function prepareArticleForPublish(
     ? { ...base, title: edited.title }
     : base;
 
-  // 2) Pilnas tekstas (jei RSS plonas — expand)
   if (isShortRssArticle(article)) {
     article = await expandArticleContent(article);
   }
 
-  // 3–4) Kitu kampu + novelty + AI QA
-  const pack = await generateTopicAnglesPackForArticle(article);
-  if (!pack) return null;
+  // Rakursai — best effort (neblouoja publish)
+  const pack =
+    (await generateTopicAnglesPackForArticle(article, {
+      markSkipped: false,
+    })) ?? emptyPack();
 
-  // 5) Įrašom viską — tik tada feed
   await writePreparedPublish({
     slug,
     title: article.title,
