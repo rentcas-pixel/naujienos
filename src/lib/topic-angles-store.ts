@@ -362,8 +362,10 @@ export async function writePreparedPublish(
 ): Promise<void> {
   if (useSupabase()) {
     const sb = getSupabaseAdmin();
-    if (!sb) return;
-    await sb.from("topic_angle_packs").upsert({
+    if (!sb) {
+      throw new Error("Supabase not configured");
+    }
+    const { error } = await sb.from("topic_angle_packs").upsert({
       slug: record.slug,
       status: "ready",
       pack: record.pack,
@@ -374,6 +376,10 @@ export async function writePreparedPublish(
       generated_at: record.pack.generatedAt || new Date().toISOString(),
       updated_at: new Date().toISOString(),
     });
+    if (error) {
+      console.error("[topic-angles] writePreparedPublish failed", error.message);
+      throw new Error(`Supabase write failed: ${error.message}`);
+    }
     return;
   }
 
@@ -458,7 +464,7 @@ export async function markPublishSkipped(
   if (useSupabase()) {
     const sb = getSupabaseAdmin();
     if (!sb) return;
-    await sb.from("topic_angle_packs").upsert({
+    const { error } = await sb.from("topic_angle_packs").upsert({
       slug,
       status: "skipped",
       pack: null,
@@ -469,6 +475,9 @@ export async function markPublishSkipped(
       generated_at: null,
       updated_at: new Date().toISOString(),
     });
+    if (error) {
+      console.error("[topic-angles] markPublishSkipped failed", error.message);
+    }
     return;
   }
 
