@@ -7,6 +7,7 @@ interface NewsHomeProps {
   pageTitle?: string;
   showCategorySections?: boolean;
   categorySections?: Array<{ category: NewsCategory; items: NewsListItem[] }>;
+  preparing?: boolean;
 }
 
 function MetaLine({ item }: { item: NewsListItem }) {
@@ -176,12 +177,27 @@ export function NewsHome({
   pageTitle = "Naujausios",
   showCategorySections = true,
   categorySections,
+  preparing = false,
 }: NewsHomeProps) {
   if (items.length === 0) {
     return (
-      <p className="text-center text-bbc-gray py-20 text-sm">
-        Naujienų nerasta. Bandykite vėliau.
-      </p>
+      <div className="text-center py-20 px-4">
+        {preparing ? (
+          <>
+            <div className="inline-block h-8 w-8 animate-spin rounded-full border-2 border-bbc-red border-r-transparent" />
+            <p className="mt-4 text-sm text-bbc-black font-medium">
+              AI ruošia straipsnius…
+            </p>
+            <p className="mt-1 text-sm text-bbc-gray">
+              Antraštė, tekstas ir „Kitu kampu“. Perkraukite po minutės.
+            </p>
+          </>
+        ) : (
+          <p className="text-bbc-gray text-sm">
+            Naujienų nerasta. Bandykite vėliau.
+          </p>
+        )}
+      </div>
     );
   }
 

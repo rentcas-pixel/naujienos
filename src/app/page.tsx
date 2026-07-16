@@ -10,6 +10,7 @@ import { warmTopicAnglesForSlugs } from "@/lib/topic-angles";
 import { paramToCategory, paramToNavTab } from "@/lib/rss-feeds";
 
 export const revalidate = 900;
+export const maxDuration = 60;
 
 interface HomeProps {
   searchParams: Promise<{ kategorija?: string }>;
@@ -29,12 +30,23 @@ export default async function Home({ searchParams }: HomeProps) {
   const pageTitle = paramToNavTab(kategorija);
 
   if (!category) {
-    const {
+    let {
       todayNews,
       displayNews,
       categorySections,
       pendingSlugs,
     } = await getHomepageWithSections();
+
+    // Jei feed tuščias, bet yra pending — paruošiam bent 1 dabar (ne tik fone)
+    if (displayNews.length === 0 && pendingSlugs.length > 0) {
+      await warmTopicAnglesForSlugs(pendingSlugs, 1);
+      ({
+        todayNews,
+        displayNews,
+        categorySections,
+        pendingSlugs,
+      } = await getHomepageWithSections());
+    }
 
     if (pendingSlugs.length > 0) {
       scheduleTopicAngleWarm(pendingSlugs);
@@ -51,11 +63,19 @@ export default async function Home({ searchParams }: HomeProps) {
             </div>
           )}
 
+          {displayNews.length === 0 && pendingSlugs.length > 0 && (
+            <div className="bg-bbc-bg-soft border-l-4 border-bbc-red px-4 py-3 mb-6 text-sm text-bbc-gray">
+              AI ruošia straipsnius ({pendingSlugs.length} eilėje). Perkraukite
+              po minutės.
+            </div>
+          )}
+
           <NewsHome
             items={displayNews}
             pageTitle={pageTitle}
             showCategorySections
             categorySections={categorySections}
+            preparing={displayNews.length === 0 && pendingSlugs.length > 0}
           />
         </main>
 
@@ -71,18 +91,39 @@ export default async function Home({ searchParams }: HomeProps) {
     );
   }
 
-  const { items: news, pendingSlugs } = await getLatestNewsWithPending({
+  // Kategorija: warm iš visų pending (ne tik „šiandien“), kitaip eilė būna 0
+  const pendingPool = await getLatestNewsWithPending({
+    category,
+    todayOnly: false,
+    limit: 60,
+  });
+
+  let { items: news } = await getLatestNewsWithPending({
     category,
     todayOnly: true,
     limit: 40,
   });
 
-  const displayNews =
+  let displayNews =
     news.length >= 8
       ? news
       : (await getLatestNewsWithPending({ category, limit: 40 })).items;
 
-  scheduleTopicAngleWarm(pendingSlugs);
+  if (displayNews.length === 0 && pendingPool.pendingSlugs.length > 0) {
+    await warmTopicAnglesForSlugs(pendingPool.pendingSlugs, 1);
+    displayNews = (
+      await getLatestNewsWithPending({ category, limit: 40 })
+    ).items;
+    news = (
+      await getLatestNewsWithPending({
+        category,
+        todayOnly: true,
+        limit: 40,
+      })
+    ).items;
+  }
+
+  scheduleTopicAngleWarm(pendingPool.pendingSlugs);
 
   return (
     <div className="min-h-screen bg-white">
@@ -95,10 +136,20 @@ export default async function Home({ searchParams }: HomeProps) {
           </div>
         )}
 
+        {displayNews.length === 0 && pendingPool.pendingSlugs.length > 0 && (
+          <div className="bg-bbc-bg-soft border-l-4 border-bbc-red px-4 py-3 mb-6 text-sm text-bbc-gray">
+            AI ruošia straipsnius ({pendingPool.pendingSlugs.length} eilėje).
+            Perkraukite po minutės.
+          </div>
+        )}
+
         <NewsHome
           items={displayNews}
           pageTitle={pageTitle}
           showCategorySections={false}
+          preparing={
+            displayNews.length === 0 && pendingPool.pendingSlugs.length > 0
+          }
         />
       </main>
 
