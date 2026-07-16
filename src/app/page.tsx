@@ -18,7 +18,7 @@ interface HomeProps {
 function scheduleTopicAngleWarm(pendingSlugs: string[]) {
   if (pendingSlugs.length === 0) return;
   after(async () => {
-    await warmTopicAnglesForSlugs(pendingSlugs, 5);
+    await warmTopicAnglesForSlugs(pendingSlugs, 8);
     revalidatePath("/");
   });
 }

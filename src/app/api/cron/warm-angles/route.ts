@@ -27,10 +27,18 @@ export async function GET(request: Request) {
       8
     );
 
-    const { pendingSlugs } = await getLatestNewsWithPending({
+    // Imame ir šiandienos, ir bendrą pool’ą — kad pending nebūtų tuščias
+    const today = await getLatestNewsWithPending({
       todayOnly: true,
       limit: 40,
     });
+    const all = await getLatestNewsWithPending({
+      todayOnly: false,
+      limit: 60,
+    });
+    const pendingSlugs = [
+      ...new Set([...today.pendingSlugs, ...all.pendingSlugs]),
+    ];
 
     await warmTopicAnglesForSlugs(pendingSlugs, batch);
 

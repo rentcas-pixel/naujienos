@@ -537,9 +537,10 @@ export async function resolvePublishableSlugs(currentSlugs: string[]): Promise<{
   let gate = await readGate();
 
   if (!gate.initialized) {
-    gate = { initialized: true, legacySlugs: unique, skippedSlugs: [] };
+    // Naujas gate: nieko nepažymim legacy — visi eina per prepare prieš feed
+    gate = { initialized: true, legacySlugs: [], skippedSlugs: [] };
     await writeGate(gate);
-    return { publishable: new Set(unique), pending: [], skipped: [] };
+    return { publishable: new Set(), pending: unique, skipped: [] };
   }
 
   const legacy = new Set(gate.legacySlugs);
