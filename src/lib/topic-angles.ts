@@ -1,4 +1,3 @@
-import { unstable_cache } from "next/cache";
 import type {
   Article,
   TopicAngle,
@@ -11,12 +10,7 @@ import {
 } from "./prompts";
 import { getOpenAIModel } from "./openai-config";
 import { searchWeb, type SearchResult } from "./web-search";
-import {
-  readTopicAnglesPack,
-  writeTopicAnglesPack,
-  markPublishSkipped,
-  isPublishSkipped,
-} from "./topic-angles-store";
+import { markPublishSkipped } from "./topic-angles-store";
 import {
   assessPublishQuality,
   packHasEnoughSources,
@@ -519,6 +513,13 @@ async function qaTopicAnglesPack(
   }
 }
 
+/** Eksportuota prepare pipeline’ui (be disko write). */
+export async function generateTopicAnglesPackForArticle(
+  article: Article
+): Promise<TopicAnglesPack | null> {
+  return generateTopicAnglesPack(article);
+}
+
 async function generateTopicAnglesPack(
   article: Article
 ): Promise<TopicAnglesPack | null> {
@@ -594,90 +595,38 @@ async function generateTopicAnglesPack(
   return pack;
 }
 
-const getCachedTopicAngles = unstable_cache(
-  async (slug: string) => {
-    // Nebeskaitom seno disko pack’o čia — getTopicAnglesForSlug tikrina novelty
-    if (await isPublishSkipped(slug)) return null;
-
-    const { getArticleBySlug } = await import("./news");
-    const { prepareArticleForReading } = await import("./expand-article");
-    const base = await getArticleBySlug(slug);
-    if (!base) return null;
-    const article = await prepareArticleForReading(base);
-    const pack = await generateTopicAnglesPack(article);
-    if (pack) {
-      await writeTopicAnglesPack(slug, pack);
-    }
-    return pack;
-  },
-  ["topic-angles-v8"],
-  { revalidate: 86400 }
-);
-
 export async function getTopicAnglesForSlug(
   slug: string
 ): Promise<TopicAnglesPack | null> {
   if (!slug) return null;
   try {
-    const { getArticleBySlug } = await import("./news");
-    const { prepareArticleForReading } = await import("./expand-article");
-    const base = await getArticleBySlug(slug);
-    if (!base) return null;
-    const article = await prepareArticleForReading(base);
-    const articleText = `${article.title}\n${article.paragraphs.map((p) => p.text).join("\n\n")}`;
+    const { readPreparedPublish } = await import("./topic-angles-store");
+    const prepared = await readPreparedPublish(slug);
+    if (prepared?.pack) return prepared.pack;
 
-    const fromDisk = await readTopicAnglesPack(slug);
-    if (fromDisk) {
-      const cleanedAngles = filterPackNovelty(fromDisk.angles, articleText);
-      if (cleanedAngles.length >= 1) {
-        const unchanged =
-          cleanedAngles.length === fromDisk.angles.length &&
-          cleanedAngles.every(
-            (angle, i) =>
-              angle.id === fromDisk.angles[i]?.id &&
-              angle.facts.length === fromDisk.angles[i]?.facts.length &&
-              angle.facts.every(
-                (fact, j) => fact === fromDisk.angles[i]?.facts[j]
-              )
-          );
-        if (unchanged) return fromDisk;
-        const cleaned = { ...fromDisk, angles: cleanedAngles };
-        await writeTopicAnglesPack(slug, cleaned);
-        return cleaned;
-      }
-
-      // Visa seniena kartojasi — pergeneruojam (ne per cache, kad apeitume skip)
-      const regenerated = await generateTopicAnglesPack(article);
-      if (regenerated) {
-        await writeTopicAnglesPack(slug, regenerated);
-        return regenerated;
-      }
-      return null;
-    }
-
-    if (await isPublishSkipped(slug)) return null;
-
-    const pack = await getCachedTopicAngles(slug);
-    if (pack) {
-      await writeTopicAnglesPack(slug, pack);
-    }
-    return pack;
+    const { prepareArticleForPublish } = await import("./prepare-article");
+    const result = await prepareArticleForPublish(slug);
+    return result?.pack ?? null;
   } catch {
     return null;
   }
 }
 
-/** Fone paruošia rakursus naujiems slug’ams (be legacy / skipped). */
+/** Fone: pilnas prepare (antraštė + tekstas + Kitu kampu + QA). */
 export async function warmTopicAnglesForSlugs(
   slugs: string[],
   limit = 5
 ): Promise<void> {
+  const { readPreparedPublish, isPublishSkipped } = await import(
+    "./topic-angles-store"
+  );
+  const { prepareArticleForPublish } = await import("./prepare-article");
   const unique = [...new Set(slugs)].slice(0, limit);
   for (const slug of unique) {
     try {
-      if (await readTopicAnglesPack(slug)) continue;
+      if (await readPreparedPublish(slug)) continue;
       if (await isPublishSkipped(slug)) continue;
-      await getTopicAnglesForSlug(slug);
+      await prepareArticleForPublish(slug);
     } catch {
       // Kitą ciklą bandysim iš naujo
     }

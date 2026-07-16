@@ -1,6 +1,6 @@
 import { promises as fs } from "fs";
 import path from "path";
-import type { TopicAnglesPack } from "./types";
+import type { Article, TopicAnglesPack } from "./types";
 import { getSupabaseAdmin, isSupabaseConfigured } from "./supabase-admin";
 
 interface ArticleGateState {
@@ -21,12 +21,63 @@ export type PublishSkipReason =
   | "generation_failed"
   | "qa_failed";
 
+export interface PreparedPublish {
+  slug: string;
+  title: string;
+  excerpt: string;
+  article: Article;
+  pack: TopicAnglesPack;
+}
+
 type PackRow = {
   slug: string;
   status: "ready" | "skipped";
   pack: TopicAnglesPack | null;
+  article: Article | null;
+  title: string | null;
+  excerpt: string | null;
   skip_reason: string | null;
 };
+
+type StoredFsPayload = {
+  pack?: TopicAnglesPack;
+  article?: Article;
+  title?: string;
+  excerpt?: string;
+};
+
+function serializeArticle(article: Article) {
+  return {
+    ...article,
+    publishedDate: article.publishedDate
+      ? article.publishedDate.toISOString()
+      : undefined,
+  };
+}
+
+function deserializeArticle(
+  raw: Article | null | undefined
+): Article | null {
+  if (!raw || !raw.slug || !Array.isArray(raw.paragraphs)) return null;
+  return {
+    ...raw,
+    publishedDate: raw.publishedDate
+      ? new Date(raw.publishedDate as unknown as string)
+      : undefined,
+  };
+}
+
+function isFullReady(row: {
+  status?: string;
+  pack?: TopicAnglesPack | null;
+  article?: Article | null;
+}): boolean {
+  return (
+    row.status === "ready" &&
+    Boolean(row.pack?.angles?.length) &&
+    Boolean(row.article?.paragraphs?.length)
+  );
+}
 
 function dataRoot(): string {
   if (process.env.VERCEL) {
@@ -71,25 +122,73 @@ async function fsHasPack(slug: string): Promise<boolean> {
   }
 }
 
-async function fsReadPack(slug: string): Promise<TopicAnglesPack | null> {
+async function fsReadPayload(slug: string): Promise<StoredFsPayload | null> {
   try {
     const raw = await fs.readFile(packPath(slug), "utf8");
-    const parsed = JSON.parse(raw) as TopicAnglesPack;
-    if (!parsed?.angles?.length) return null;
+    const parsed = JSON.parse(raw) as StoredFsPayload & TopicAnglesPack;
+    // Senas formatas: tiesiog pack
+    if (Array.isArray((parsed as TopicAnglesPack).angles) && !parsed.pack) {
+      return { pack: parsed as TopicAnglesPack };
+    }
     return parsed;
   } catch {
     return null;
   }
 }
 
+async function fsReadPack(slug: string): Promise<TopicAnglesPack | null> {
+  const payload = await fsReadPayload(slug);
+  const pack = payload?.pack;
+  if (!pack?.angles?.length) return null;
+  return pack;
+}
+
 async function fsWritePack(slug: string, pack: TopicAnglesPack): Promise<void> {
   await ensureDirs();
-  await fs.writeFile(packPath(slug), JSON.stringify(pack), "utf8");
+  const prev = (await fsReadPayload(slug)) ?? {};
+  await fs.writeFile(
+    packPath(slug),
+    JSON.stringify({ ...prev, pack }),
+    "utf8"
+  );
   try {
     await fs.unlink(skipPath(slug));
   } catch {
     // ignore
   }
+}
+
+async function fsWritePrepared(record: PreparedPublish): Promise<void> {
+  await ensureDirs();
+  await fs.writeFile(
+    packPath(record.slug),
+    JSON.stringify({
+      pack: record.pack,
+      article: serializeArticle(record.article),
+      title: record.title,
+      excerpt: record.excerpt,
+    }),
+    "utf8"
+  );
+  try {
+    await fs.unlink(skipPath(record.slug));
+  } catch {
+    // ignore
+  }
+}
+
+async function fsReadPrepared(slug: string): Promise<PreparedPublish | null> {
+  const payload = await fsReadPayload(slug);
+  if (!payload?.pack?.angles?.length) return null;
+  const article = deserializeArticle(payload.article ?? null);
+  if (!article) return null;
+  return {
+    slug,
+    title: payload.title || article.title,
+    excerpt: payload.excerpt || "",
+    article,
+    pack: payload.pack,
+  };
 }
 
 async function fsReadGate(): Promise<ArticleGateState> {
@@ -197,7 +296,7 @@ async function sbFetchRows(slugs: string[]): Promise<Map<string, PackRow>> {
 
   const { data, error } = await sb
     .from("topic_angle_packs")
-    .select("slug, status, pack, skip_reason")
+    .select("slug, status, pack, article, title, excerpt, skip_reason")
     .in("slug", slugs);
 
   if (error || !data) return map;
@@ -207,6 +306,11 @@ async function sbFetchRows(slugs: string[]): Promise<Map<string, PackRow>> {
       slug: row.slug as string,
       status: row.status as "ready" | "skipped",
       pack: (row.pack as TopicAnglesPack | null) ?? null,
+      article: deserializeArticle(
+        (row.article as Article | null) ?? null
+      ),
+      title: (row.title as string | null) ?? null,
+      excerpt: (row.excerpt as string | null) ?? null,
       skip_reason: (row.skip_reason as string | null) ?? null,
     });
   }
@@ -215,20 +319,93 @@ async function sbFetchRows(slugs: string[]): Promise<Map<string, PackRow>> {
 
 export async function hasTopicAnglesPack(slug: string): Promise<boolean> {
   if (!slug) return false;
+  const prepared = await readPreparedPublish(slug);
+  return Boolean(prepared);
+}
+
+export async function readPreparedPublish(
+  slug: string
+): Promise<PreparedPublish | null> {
+  if (!slug) return null;
 
   if (useSupabase()) {
     const sb = getSupabaseAdmin();
-    if (!sb) return false;
+    if (!sb) return null;
     const { data } = await sb
       .from("topic_angle_packs")
-      .select("slug")
+      .select("slug, status, pack, article, title, excerpt")
       .eq("slug", slug)
       .eq("status", "ready")
       .maybeSingle();
-    return Boolean(data);
+    if (!data) return null;
+    const pack = data.pack as TopicAnglesPack | null;
+    const article = deserializeArticle(
+      (data.article as Article | null) ?? null
+    );
+    if (!isFullReady({ status: data.status as string, pack, article })) {
+      return null;
+    }
+    return {
+      slug,
+      title: (data.title as string) || article!.title,
+      excerpt: (data.excerpt as string) || "",
+      article: article!,
+      pack: pack!,
+    };
   }
 
-  return fsHasPack(slug);
+  return fsReadPrepared(slug);
+}
+
+export async function writePreparedPublish(
+  record: PreparedPublish
+): Promise<void> {
+  if (useSupabase()) {
+    const sb = getSupabaseAdmin();
+    if (!sb) return;
+    await sb.from("topic_angle_packs").upsert({
+      slug: record.slug,
+      status: "ready",
+      pack: record.pack,
+      article: serializeArticle(record.article),
+      title: record.title,
+      excerpt: record.excerpt,
+      skip_reason: null,
+      generated_at: record.pack.generatedAt || new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+    return;
+  }
+
+  await fsWritePrepared(record);
+}
+
+export async function getPreparedMetas(
+  slugs: string[]
+): Promise<Map<string, { title: string; excerpt: string }>> {
+  const unique = [...new Set(slugs.filter(Boolean))];
+  const map = new Map<string, { title: string; excerpt: string }>();
+  if (unique.length === 0) return map;
+
+  if (useSupabase()) {
+    const rows = await sbFetchRows(unique);
+    for (const slug of unique) {
+      const row = rows.get(slug);
+      if (!row || !isFullReady(row)) continue;
+      map.set(slug, {
+        title: row.title || row.article!.title,
+        excerpt: row.excerpt || "",
+      });
+    }
+    return map;
+  }
+
+  for (const slug of unique) {
+    const prepared = await fsReadPrepared(slug);
+    if (!prepared) continue;
+    map.set(slug, { title: prepared.title, excerpt: prepared.excerpt });
+  }
+  return map;
 }
 
 export async function readTopicAnglesPack(
@@ -285,6 +462,9 @@ export async function markPublishSkipped(
       slug,
       status: "skipped",
       pack: null,
+      article: null,
+      title: null,
+      excerpt: null,
       skip_reason: reason,
       generated_at: null,
       updated_at: new Date().toISOString(),
@@ -375,7 +555,7 @@ export async function resolvePublishableSlugs(currentSlugs: string[]): Promise<{
         continue;
       }
       const row = rows.get(slug);
-      if (row?.status === "ready" && row.pack?.angles?.length) {
+      if (row && isFullReady(row)) {
         publishable.add(slug);
         continue;
       }
@@ -394,7 +574,7 @@ export async function resolvePublishableSlugs(currentSlugs: string[]): Promise<{
       publishable.add(slug);
       continue;
     }
-    if (await fsHasPack(slug)) {
+    if (await fsReadPrepared(slug)) {
       publishable.add(slug);
       continue;
     }
@@ -412,5 +592,5 @@ export async function isArticlePublishable(slug: string): Promise<boolean> {
   const gate = await readGate();
   if (!gate.initialized) return true;
   if (gate.legacySlugs.includes(slug)) return true;
-  return hasTopicAnglesPack(slug);
+  return Boolean(await readPreparedPublish(slug));
 }

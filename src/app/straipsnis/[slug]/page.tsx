@@ -2,11 +2,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getArticleBySlug, findRelatedHeadlines } from "@/lib/news";
 import { prepareArticleForReading } from "@/lib/expand-article";
-import { getTopicAnglesForSlug } from "@/lib/topic-angles";
+import { prepareArticleForPublish } from "@/lib/prepare-article";
 import {
   hasTopicAnglesPack,
   isArticlePublishable,
   isPublishSkipped,
+  readPreparedPublish,
 } from "@/lib/topic-angles-store";
 import { SiteHeader } from "@/components/SiteHeader";
 import { ArticlePageClient } from "@/components/ArticlePageClient";
@@ -25,9 +26,10 @@ export default async function ArticlePage({ params }: PageProps) {
   if (!baseArticle) notFound();
 
   const publishable = await isArticlePublishable(slug);
-  let topicAngles = null;
+  let prepared = await readPreparedPublish(slug);
+  let topicAngles = prepared?.pack ?? null;
 
-  // Naujas straipsnis: kol nėra rakursų — nerodom turinio (nei antraštės)
+  // Naujas straipsnis: kol nėra pilnai paruošta — nerodom turinio
   if (!publishable) {
     if (await isPublishSkipped(slug)) {
       return (
@@ -63,8 +65,19 @@ export default async function ArticlePage({ params }: PageProps) {
       );
     }
 
-    topicAngles = await getTopicAnglesForSlug(slug);
-    if (!topicAngles || !(await hasTopicAnglesPack(slug))) {
+    const result = await prepareArticleForPublish(slug);
+    prepared = result
+      ? {
+          slug,
+          title: result.article.title,
+          excerpt: "",
+          article: result.article,
+          pack: result.pack,
+        }
+      : null;
+    topicAngles = prepared?.pack ?? null;
+
+    if (!prepared || !(await hasTopicAnglesPack(slug))) {
       const skippedAfterAttempt = await isPublishSkipped(slug);
       return (
         <div className="min-h-screen bg-white">
@@ -99,8 +112,8 @@ export default async function ArticlePage({ params }: PageProps) {
                   Straipsnis dar ruošiamas
                 </p>
                 <p className="mt-1 text-sm text-bbc-gray">
-                  Pasirodys feed’e tik jei AI ras kelis šaltinius ir pakankamai
-                  info.
+                  AI ruošia antraštę, tekstą ir „Kitu kampu“. Pasirodys feed’e,
+                  kai viskas bus paruošta.
                 </p>
               </>
             )}
@@ -113,12 +126,11 @@ export default async function ArticlePage({ params }: PageProps) {
         </div>
       );
     }
-  } else {
-    // Visada per getTopicAnglesForSlug — filtruoja straipsnio kartojimą / senus pack’us
-    topicAngles = await getTopicAnglesForSlug(slug);
   }
 
-  const article = await prepareArticleForReading(baseArticle);
+  const article = prepared?.article
+    ? prepared.article
+    : await prepareArticleForReading(baseArticle);
 
   const excerpt = article.paragraphs.map((p) => p.text).join(" ").slice(0, 400);
 

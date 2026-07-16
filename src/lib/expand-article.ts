@@ -70,7 +70,7 @@ async function callOpenAIExpand(
   }
 }
 
-async function expandArticleContent(article: Article): Promise<Article> {
+export async function expandArticleContent(article: Article): Promise<Article> {
   const summary = article.paragraphs.map((paragraph) => paragraph.text).join("\n\n");
 
   const raw =

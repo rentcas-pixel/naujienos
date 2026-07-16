@@ -7,7 +7,7 @@ import {
   resolveNewsCategory,
 } from "./news-category";
 import { getTrendingSnapshot, rankByTrending } from "./trending";
-import { resolvePublishableSlugs } from "./topic-angles-store";
+import { resolvePublishableSlugs, getPreparedMetas } from "./topic-angles-store";
 import { fetchRssFeed, type RssItem } from "./rss-client";
 import {
   estimateReadingTime,
@@ -405,7 +405,27 @@ export async function getLatestNewsWithPending(options?: {
   );
   filtered = filtered.filter((item) => publishable.has(item.slug));
 
-  filtered = await editRawItems(filtered, { budgetMs: 4000, maxItems: 16 });
+  // Paruoštų straipsnių antraštės iš DB (nebe AI ant feed request)
+  const metas = await getPreparedMetas(filtered.map((item) => item.slug));
+  filtered = filtered.map((item) => {
+    const meta = metas.get(item.slug);
+    if (!meta) return item;
+    return {
+      ...item,
+      title: meta.title || item.title,
+      excerpt: meta.excerpt || item.excerpt,
+    };
+  });
+
+  const needsHeadlineEdit = filtered.filter((item) => !metas.has(item.slug));
+  if (needsHeadlineEdit.length > 0) {
+    const edited = await editRawItems(needsHeadlineEdit, {
+      budgetMs: 4000,
+      maxItems: 16,
+    });
+    const bySlug = new Map(edited.map((item) => [item.slug, item]));
+    filtered = filtered.map((item) => bySlug.get(item.slug) ?? item);
+  }
 
   const items = await toRankedListItems(filtered, options?.limit ?? 80);
   return { items, pendingSlugs: pending };
@@ -440,11 +460,29 @@ export async function getHomepageWithSections(): Promise<{
       .filter((item) => publishable.has(item.slug))
       .map((item) => item.slug)
   );
-  const toEdit = publishableRaw.filter((item) => slugSet.has(item.slug));
-  const enriched = await enrichRawWithEditedHeadlines(publishableRaw, toEdit, {
-    budgetMs: 3500,
-    maxItems: 12,
+
+  const metas = await getPreparedMetas([...slugSet]);
+  const withPreparedTitles = publishableRaw.map((item) => {
+    const meta = metas.get(item.slug);
+    if (!meta) return item;
+    return {
+      ...item,
+      title: meta.title || item.title,
+      excerpt: meta.excerpt || item.excerpt,
+    };
   });
+
+  const toEdit = withPreparedTitles.filter(
+    (item) => slugSet.has(item.slug) && !metas.has(item.slug)
+  );
+  const enriched = await enrichRawWithEditedHeadlines(
+    withPreparedTitles,
+    toEdit,
+    {
+      budgetMs: 3500,
+      maxItems: 12,
+    }
+  );
 
   const todayPool = filterRawOnly(enriched, { todayOnly: true, limit: 60 });
   const displaySource =
@@ -478,11 +516,17 @@ export async function getHomepageWithSections(): Promise<{
 export async function getNewsArticleBySlug(
   slug: string
 ): Promise<Article | undefined> {
+  const { readPreparedPublish } = await import("./topic-angles-store");
+  const prepared = await readPreparedPublish(slug);
+  if (prepared?.article) {
+    return prepared.article;
+  }
+
   const raw = await getCachedRssNews();
   let item = raw.find((n) => n.slug === slug);
   if (!item) return undefined;
 
-  // Tas pats antraščių kelias kaip feed’e — kad H1 sutaptų su sąrašu
+  // Legacy / dar neparuosta — antraštė kaip feed’e
   const [edited] = await editRawItems([item], {
     budgetMs: 10000,
     maxItems: 1,

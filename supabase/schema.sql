@@ -15,6 +15,9 @@ create table if not exists public.topic_angle_packs (
   slug text primary key,
   status text not null check (status in ('ready', 'skipped')),
   pack jsonb,
+  article jsonb,
+  title text,
+  excerpt text,
   skip_reason text,
   generated_at timestamptz,
   updated_at timestamptz not null default now()
@@ -25,5 +28,3 @@ create index if not exists topic_angle_packs_status_idx
 
 alter table public.publish_gate enable row level security;
 alter table public.topic_angle_packs enable row level security;
-
--- Serveris naudoja service role — RLS politikų anonui nereikia.
