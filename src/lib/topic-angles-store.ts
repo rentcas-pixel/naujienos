@@ -250,28 +250,34 @@ async function fsSkipReason(slug: string): Promise<PublishSkipReason | null> {
 
 async function sbReadGate(): Promise<ArticleGateState> {
   const sb = getSupabaseAdmin();
-  if (!sb) return { initialized: false, legacySlugs: [], skippedSlugs: [] };
+  if (!sb) return fsReadGate();
 
-  const { data: gate, error } = await sb
-    .from("publish_gate")
-    .select("initialized, legacy_slugs")
-    .eq("id", 1)
-    .maybeSingle();
+  try {
+    const { data: gate, error } = await sb
+      .from("publish_gate")
+      .select("initialized, legacy_slugs")
+      .eq("id", 1)
+      .maybeSingle();
 
-  if (error || !gate) {
-    return { initialized: false, legacySlugs: [], skippedSlugs: [] };
+    if (error || !gate) {
+      console.error("[topic-angles] publish_gate read", error?.message);
+      return fsReadGate();
+    }
+
+    const { data: skippedRows } = await sb
+      .from("topic_angle_packs")
+      .select("slug")
+      .eq("status", "skipped");
+
+    return {
+      initialized: Boolean(gate.initialized),
+      legacySlugs: Array.isArray(gate.legacy_slugs) ? gate.legacy_slugs : [],
+      skippedSlugs: (skippedRows ?? []).map((row) => row.slug as string),
+    };
+  } catch (err) {
+    console.error("[topic-angles] publish_gate fetch failed", err);
+    return fsReadGate();
   }
-
-  const { data: skippedRows } = await sb
-    .from("topic_angle_packs")
-    .select("slug")
-    .eq("status", "skipped");
-
-  return {
-    initialized: Boolean(gate.initialized),
-    legacySlugs: Array.isArray(gate.legacy_slugs) ? gate.legacy_slugs : [],
-    skippedSlugs: (skippedRows ?? []).map((row) => row.slug as string),
-  };
 }
 
 async function sbWriteGate(state: ArticleGateState): Promise<void> {
@@ -330,35 +336,37 @@ export async function readPreparedPublish(
 
   if (useSupabase()) {
     const sb = getSupabaseAdmin();
-    if (!sb) return null;
-    const { data } = await sb
-      .from("topic_angle_packs")
-      .select("slug, status, pack, path, article, title, excerpt")
-      .eq("slug", slug)
-      .eq("status", "ready")
-      .maybeSingle();
-    if (!data) return null;
-    let pack = data.pack as TopicAnglesPack | null;
-    if (!pack?.angles && typeof (data as { path?: string }).path === "string") {
+    if (sb) {
       try {
-        pack = JSON.parse((data as { path: string }).path) as TopicAnglesPack;
-      } catch {
-        pack = null;
+        const { data, error } = await sb
+          .from("topic_angle_packs")
+          .select("slug, status, pack, article, title, excerpt")
+          .eq("slug", slug)
+          .eq("status", "ready")
+          .maybeSingle();
+
+        if (!error && data) {
+          const pack = (data.pack as TopicAnglesPack | null) ?? null;
+          const article = deserializeArticle(
+            (data.article as Article | null) ?? null
+          );
+          if (isFullReady({ status: data.status as string, pack, article })) {
+            return {
+              slug,
+              title: (data.title as string) || article!.title,
+              excerpt: (data.excerpt as string) || "",
+              article: article!,
+              pack: pack ?? { angles: [], generatedAt: new Date().toISOString() },
+            };
+          }
+        } else if (error) {
+          console.error("[topic-angles] readPreparedPublish", error.message);
+        }
+      } catch (err) {
+        console.error("[topic-angles] readPreparedPublish fetch failed", err);
       }
     }
-    const article = deserializeArticle(
-      (data.article as Article | null) ?? null
-    );
-    if (isFullReady({ status: data.status as string, pack, article })) {
-      return {
-        slug,
-        title: (data.title as string) || article!.title,
-        excerpt: (data.excerpt as string) || "",
-        article: article!,
-        pack: pack ?? { angles: [], generatedAt: new Date().toISOString() },
-      };
-    }
-    // Supabase row incomplete — try local FS
+    // Supabase nepasiekiamas / tuščia — lokalus fallback
     if (!process.env.VERCEL) {
       return fsReadPrepared(slug);
     }
@@ -383,23 +391,10 @@ async function sbUpsertPrepared(record: PreparedPublish): Promise<void> {
     updated_at: new Date().toISOString(),
   };
 
-  // 1) Teisinga schema: pack jsonb
-  let { error } = await sb.from("topic_angle_packs").upsert({
+  const { error } = await sb.from("topic_angle_packs").upsert({
     ...base,
     pack: record.pack,
   });
-
-  // 2) Sena / n8n schema: stulpelis "path" vietoj "pack"
-  if (error && /pack|column/i.test(error.message)) {
-    console.warn(
-      "[topic-angles] pack column missing, writing pack JSON into path",
-      error.message
-    );
-    ({ error } = await sb.from("topic_angle_packs").upsert({
-      ...base,
-      path: JSON.stringify(record.pack),
-    }));
-  }
 
   if (error) {
     console.error("[topic-angles] writePreparedPublish failed", error.message);
@@ -610,8 +605,12 @@ export async function resolvePublishableSlugs(currentSlugs: string[]): Promise<{
         publishable.add(slug);
         continue;
       }
+      // Lokalus paruoštas straipsnis (kai Supabase fetch failina)
+      if (!process.env.VERCEL && (await fsReadPrepared(slug))) {
+        publishable.add(slug);
+        continue;
+      }
       if (row?.status === "skipped") {
-        // Tik promotional lieka skipped; kita — bandome prepare iš naujo
         if (row.skip_reason === "promotional") {
           skipped.push(slug);
           continue;
